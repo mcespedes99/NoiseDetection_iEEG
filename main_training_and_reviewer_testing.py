@@ -6,7 +6,7 @@
 ###############################################################################
 
 import torch
-from model import *
+from interictal_classifier.model import *
 from dataset import *
 from statistics import *
 from torch.utils.data import DataLoader
