@@ -1,252 +1,531 @@
-# Write a custom dataset class (inherits from torch.utils.data.Dataset)
-from torch.utils.data import Dataset
-import pandas as pd
-from typing import List, Tuple, Dict
-import numpy as np
-import zipfile
-import re
-import scipy
-import scipy.signal as signal
-import scipy.stats as stats
+import os
+
+from torchvision import transforms
+from torch.utils.data import DataLoader
+import custom_dataset
 import torch
+import numpy as np
+import utils
 
-# 1. Subclass torch.utils.data.Dataset
-class ImageFolderCustom(Dataset):
-    # 2. Initialize with a targ_dir and transform (optional) parameter.
-    def __init__(self, df: pd.DataFrame, zip_files: List[str], transform=None) -> None:
-        """
-        Args:
-            df: DataFrame of the same type as segments.csv with only the subjects for the Dataset.
-            zip_map: Dict mapping 'institution' column of the dataframe to a zip file.
-            transform: transforms.Compose to apply to the data
-        """
-        
-        self.zip_files = zip_files
-        # Find mapp between institutions and zip files and all the files for each zip
-        files = []
-        inst_to_zipID = dict()
-        for zip_id, zip_file in enumerate(zip_files):
-            with zipfile.ZipFile(zip_file, mode="r") as f:
-                # Get all files
-                files_zip = f.namelist()
-                files.append(files_zip)
-                # Find segments.csv
-                reg = re.compile("segments_new.csv")
-                seg_path= list(filter(reg.search, files_zip))[0]
-                # Get df
-                with f.open(seg_path) as myfile:
-                    df_seg = pd.read_csv(myfile, sep=',', index_col='index')
-                    # Add the mapping
-                    for inst in  np.unique(df_seg['institution']):
-                        inst_to_zipID[inst] = zip_id
-        # Save vals
-        self.files = files
-        self.inst_to_zipID = inst_to_zipID
-        self.df = df
-        self.transform = transform
-        # Create classes and class_to_idx attributes
-        self.classes, self.class_to_idx = find_classes(df)
+
+def create_dataloaders(
+    zip_paths: str,
+    transform_train: transforms.Compose,
+    transform_val: transforms.Compose,
+    batch_size: int,
+    num_workers: int = None,
+    weightedsampler: bool = True,
+    random_split: bool = False,
+    dataset_class: str = "ImageFolderCustom",
+):
+    """Creates training and testing DataLoaders.
+
+  Takes in a training directory and testing directory path and turns
+  them into PyTorch Datasets and then into PyTorch DataLoaders.
+
+  Args:
+    train_dir: Path to training directory.
+    test_dir: Path to testing directory.
+    transform: torchvision transforms to perform on training and testing data.
+    batch_size: Number of samples per batch in each of the DataLoaders.
+    num_workers: An integer for number of workers per DataLoader.
+
+  Returns:
+    A tuple of (train_dataloader, test_dataloader, class_names).
+    Where class_names is a list of the target classes.
+    Example usage:
+      train_dataloader, test_dataloader, class_names = \
+        = create_dataloaders(train_dir=path/to/train_dir,
+                             test_dir=path/to/test_dir,
+                             transform=some_transform,
+                             batch_size=32,
+                             num_workers=4)
+  """
+    if not num_workers:
+        num_workers = os.cpu_count()
+    # Create train val sets
+    df_train, df_val = custom_dataset.get_train_val_sets(
+        zip_paths, val_split=0.3, random_split=random_split
+    )
+    # Shuffle them
+    df_train = df_train.sample(frac=1).reset_index(drop=True)
+    df_val = df_val.sample(frac=1).reset_index(drop=True)
+
+    # Deal with class imbalance
+    # Train set
+    train_labels = df_train.category_id.to_numpy()
+    # Probability per class
+    class_sample_counts = np.unique(train_labels, return_counts=True)[1]
+    cls_weights = 1 / torch.Tensor(class_sample_counts)
+    # Map back to elements
+    weights = cls_weights[train_labels]
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(
+        weights, len(train_labels), replacement=False
+    )
+
+    # Get dataset class
+    dataset_dict = {
+        "ImageFolderCustom": custom_dataset.ImageFolderCustom,
+        "MultiLevelSpectrogram": custom_dataset.MultiLevelSpectrogram,
+        "MultiLevelSpectrogramDir": custom_dataset.MultiLevelSpectrogramDir,
+    }
+    dataset_custom = dataset_dict[dataset_class]
+    if dataset_class == "MultiLevelSpectrogramDir":
+        # Create datasets
+        print("\nCreating dataset folders...\n", end="\n", flush=True)
+        train_folder = custom_dataset.create_dataset(
+            df_train, zip_paths, "train", processes=num_workers
+        )
+        val_folder = custom_dataset.create_dataset(
+            df_train, zip_paths, "validation", processes=num_workers
+        )
+        # Create dataset class
+        print("\nCreating dataset classes...\n", end="\n", flush=True)
+        train_data = dataset_custom(
+            df=df_train, input_folder=train_folder, transform=transform_train
+        )
+        val_data = dataset_custom(
+            df=df_val, input_folder=val_folder, transform=transform_val
+        )
+    else:
+        # Use ImageFolderCustom to create dataset(s)
+        train_data = dataset_custom(
+            df=df_train, zip_files=zip_paths, transform=transform_train
+        )
+        val_data = dataset_custom(
+            df=df_val, zip_files=zip_paths, transform=transform_val
+        )
+
+    # Get class names
+    class_names = train_data.classes
+
+    # Wrapper to support full batches
+    if batch_size == -1:
+        print("Full")
+        train_batch_size = len(train_data)
+        val_batch_size = len(val_data)
+    else:
+        train_batch_size = batch_size
+        val_batch_size = batch_size
+
+    # Turn images into data loaders
+    if weightedsampler:
+        train_dataloader = DataLoader(
+            train_data,
+            batch_size=train_batch_size,
+            # shuffle=True, # Don't work with sampler
+            sampler=sampler,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+    else:
+        train_dataloader = DataLoader(
+            train_data,
+            batch_size=train_batch_size,
+            shuffle=True,  # Don't work with sampler
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+    val_dataloader = DataLoader(
+        val_data,
+        batch_size=val_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_dataloader, val_dataloader, cls_weights
+
+
+def create_dataloaders_uncompress(
+    zip_paths: str,
+    df_train_path: str,
+    df_val_path: str,
+    transform_train: transforms.Compose,
+    transform_val: transforms.Compose,
+    batch_size: int,
+    features: str,
+    num_workers: int = None,
+    dataset_class: str = "ImageFolderCustom",
+    previosly_uncompressed: bool = False,
+    binary:bool = False,
+):
+    # Created dataloaders given val and train dfs
+    """Creates training and testing DataLoaders.
+
+  Takes in a training directory and testing directory path and turns
+  them into PyTorch Datasets and then into PyTorch DataLoaders.
+
+  Args:
+    train_dir: Path to training directory.
+    test_dir: Path to testing directory.
+    transform: torchvision transforms to perform on training and testing data.
+    batch_size: Number of samples per batch in each of the DataLoaders.
+    num_workers: An integer for number of workers per DataLoader.
+
+  Returns:
+    A tuple of (train_dataloader, test_dataloader, class_names).
+    Where class_names is a list of the target classes.
+    Example usage:
+      train_dataloader, test_dataloader, class_names = \
+        = create_dataloaders(train_dir=path/to/train_dir,
+                             test_dir=path/to/test_dir,
+                             transform=some_transform,
+                             batch_size=32,
+                             num_workers=4)
+  """
+    import pandas as pd
+    if not num_workers:
+        num_workers = os.cpu_count()
+    # Read given dataframe
+    df_train = pd.read_csv(df_train_path, sep=",", index_col="index")
+    df_val = pd.read_csv(df_val_path, sep=",", index_col="index")
     
-    # 3. Overwrite the __len__() method 
-    def __len__(self):
-        return len(self.df)
+    # Binary classification. 0=Noise, 1=Others (physiological and pathological)
+    if binary:
+        print('Grouping Pathology and physiology in one class\n', end='\n', flush=True)
+        df_train = df_train.replace({'category_id': {2: 0, 1:0, 0:1}})
+        df_val = df_val.replace({'category_id': {2: 0, 1:0, 0:1}})
+   
+    # Shuffle them
+    df_train = df_train.sample(frac=1).reset_index(drop=True)
+    df_val = df_val.sample(frac=1).reset_index(drop=True)
 
-    # 4. Overwrite the __getitem__() method
-    def __getitem__(self, item):
-        target = self.df.iloc[item]["category_id"]
-        data = self.load_spectrogram(item)
-        # Probably need to convert to tf image
+    # Deal with class imbalance
+    # Train set
+    train_labels = df_train.category_id.to_numpy()
+    print(train_labels)
+    # Probability per class
+    class_sample_counts = np.unique(train_labels, return_counts=True)[1]
+    cls_weights = 1 / torch.Tensor(class_sample_counts)
+    print(cls_weights)
+    # Map back to elements
+    weights = cls_weights[train_labels]
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(
+        weights, len(train_labels), replacement=True
+    )
 
-        # Transform if necessary
-        if self.transform:
-            return self.transform(data), target  # return data, label (X, y)
-        else:
-            return data, target  # return data, label (X, y)
-
-    # 4. Make function to load images
-    def load_spectrogram(self, index: int) -> np.array:
-        "Opens an image via a dataframe and returns it."
-        sid = self.df.iloc[index]["segment_id"]
-        # Get institution to map to zip file
-        zip_file_id = self.inst_to_zipID[self.df.iloc[index]["institution"]]
-        # Open zip file to get data
-        with zipfile.ZipFile(self.zip_files[zip_file_id], mode="r") as archive:
-            files = self.files[zip_file_id]
-            reg = re.compile(sid)
-            seg_file = list(filter(reg.search, files))[0]
-            with archive.open(seg_file) as myfile:
-                data = np.load(myfile)
-            print(data.shape)
-            # Compute wavelet transform
-            data = compute_wavelet_transform(data)
-            # _, _, data = signal.spectrogram(
-            #     data, fs=1200, nperseg=256, noverlap=128, nfft=1024
-            # )
-        data = stats.zscore(data, axis=1)
-        data = np.expand_dims(data, axis=0)
-        # Convert to tensor
-        data = torch.from_numpy(data)
-        return data
-
-
-def find_classes(df: pd.DataFrame) -> Tuple[List[str], Dict[str, int]]:
-    """Finds the classes in the provided dataframe
-
-    Args:
-        df (pd.DataFrame): Target dataframe.
-
-    Returns:
-        Tuple[List[str], Dict[str, int]]: (list_of_class_names, dict(class_name: idx...))
+    # Get dataset class
+    dataset_custom = custom_dataset.SpectrogramDir
+    # 1. Uncompress data
+    # First find tmp
+    tmpdir = utils.get_tmpdir()
+    if not previosly_uncompressed:
+        # Now uncompress
+        print("\nUncompressing data..", end="\n", flush=True)
+        utils.uncompress_zip(zip_files=zip_paths, out_dir=tmpdir)
+    # 2. Create dataset class
+    print("\nCreating dataset classes...", end="\n", flush=True)
+    train_data = dataset_custom(
+        df=df_train, input_folder=tmpdir, features=features, transform=transform_train
+    )
+    val_data = dataset_custom(
+        df=df_val, input_folder=tmpdir, features=features, transform=transform_val
+    )
     
-    Example:
-        find_classes("food_images/train")
-        >>> (["class_1", "class_2"], {"class_1": 0, ...})
-    """
-    # Get the unique classes in the dataframe
-    classes = np.unique(df['category_name']).tolist()
-    # Get the associated index
-    class_map = dict()
-    for unique_class in classes:
-        class_idx = df.loc[df['category_name']==unique_class, 'category_id'].iloc[0]
-        class_map[unique_class] = class_idx
-    return classes, class_map
+    # Get class names
+    class_names = train_data.classes
 
-def get_train_val_sets(paths: List[str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    # Gets 2 paths of zip files containing a segments_new.csv and divides the data
-    # between training and validation by separating by subject (training and val have diff subjects).
-    assert len(paths) == 2
-    # Initialize variables
-    df_total = []
-    files = []
-    map_zip_to_inst = dict()
-    # Compute total df
-    for zip_id, zip_file in enumerate(paths):
-        with zipfile.ZipFile(zip_file, mode="r") as f:
-            # Get all files
-            files_zip = f.namelist()
-            files.append(files_zip) #Save files
-            # Find segments.csv
-            reg = re.compile("segments_new.csv")
-            seg_path= list(filter(reg.search, files_zip))[0]
-            # Get df
-            with f.open(seg_path) as myfile:
-                df = pd.read_csv(myfile, sep=',', index_col='index')
-                # Add the mapping
-                for inst in  np.unique(df['institution']):
-                    map_zip_to_inst[inst] = zip_id
-                # Append df
-                if len(df_total)==0:
-                    df_total = df
-                else:
-                    df_total = pd.concat([df_total, df])
-    # Get datasets
-    df_train, df_val = train_val_split_multiclass(df_total, val_split=0.3, margin_allowance = 0.02, class_col='institution')
+    # Wrapper to support full batches
+    if batch_size == -1:
+        print("Full")
+        train_batch_size = len(train_data)
+        val_batch_size = len(val_data)
+    else:
+        train_batch_size = batch_size
+        val_batch_size = batch_size
 
-    return df_train, df_val
+    # Turn images into data loaders
+    # if binary:
+    #     print('using sampler')
+    #     train_dataloader = DataLoader(
+    #         train_data,
+    #         batch_size=train_batch_size,
+    #         # shuffle=True,  # Don't work with sampler
+    #         sampler=sampler,
+    #         num_workers=num_workers,
+    #         pin_memory=True,
+    #     )
+    # else:
+    train_dataloader = DataLoader(
+        train_data,
+        batch_size=train_batch_size,
+        shuffle=True,  # Don't work with sampler
+        # sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_dataloader = DataLoader(
+        val_data,
+        batch_size=val_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
 
-def train_val_split(df, val_split=0.3, margin_allowance = 0.02):
-    # List of percentages by subj
-    percentages_list = []
-    for id_subj in np.unique(df['patient_id']):
-        percentages_list.append(len(df[df['patient_id']==id_subj])/len(df))
-    # Zip with patients id
-    percentages = np.vstack([percentages_list, np.unique(df['patient_id'])])
-    val_real = 0
-    val_subj = []
-    cond = False
-    while cond == False:
-        # Look for all the percentages lower than val
-        mask = percentages[0,:]<val_split-val_real
-        percentages_eval = percentages[:,mask]
-        if percentages_eval.size!=0:
-            # Get the bigger value 
-            new_val_id = percentages_eval[0,:].argmax()
-            if val_split+margin_allowance >= val_real+percentages_eval[0,:].max(): #%2 margin
-                val_real += percentages_eval[0,:].max()
-                # add val subj
-                val_subj.append(int(percentages_eval[1,new_val_id]))
-                # Delete the value from array
-                indexes = np.arange(percentages.shape[-1])
-                percentages = np.delete(percentages, indexes[mask][new_val_id], axis=-1)
-            else:
-                cond = True
-        else:
-            cond = True
-    # Get train subj
-    train_subj = percentages[1,:].astype(int)
-    train_real = 1-val_real
+    return train_dataloader, val_dataloader, class_names
+def create_dataloaders_manual(
+    zip_paths: str,
+    df_path: str,
+    transform_train: transforms.Compose,
+    transform_val: transforms.Compose,
+    batch_size: int,
+    num_workers: int = None,
+    random_split: bool = False,
+    dataset_class: str = "ImageFolderCustom",
+    save_path_df: str = None,
+    previosly_uncompressed: bool = False,
+    discard_line_noise: bool = False,
+    split_by_inst: bool = False,
+    binary:bool = False
+):
+    """Creates training and testing DataLoaders.
+
+  Takes in a training directory and testing directory path and turns
+  them into PyTorch Datasets and then into PyTorch DataLoaders.
+
+  Args:
+    train_dir: Path to training directory.
+    test_dir: Path to testing directory.
+    transform: torchvision transforms to perform on training and testing data.
+    batch_size: Number of samples per batch in each of the DataLoaders.
+    num_workers: An integer for number of workers per DataLoader.
+
+  Returns:
+    A tuple of (train_dataloader, test_dataloader, class_names).
+    Where class_names is a list of the target classes.
+    Example usage:
+      train_dataloader, test_dataloader, class_names = \
+        = create_dataloaders(train_dir=path/to/train_dir,
+                             test_dir=path/to/test_dir,
+                             transform=some_transform,
+                             batch_size=32,
+                             num_workers=4)
+  """
+    import pandas as pd
+    if not num_workers:
+        num_workers = os.cpu_count()
+    # Read given dataframe
+    df = pd.read_csv(df_path, sep=",", index_col="index")
+    if split_by_inst:
+        print("\nSplitting by inst...", end="\n", flush=True)
+        df_train = df.loc[df.institution=='fnusa']
+        df_test_val = df.loc[df.institution=='mayo']
+        df_test, df_val = custom_dataset.train_val_split_multiclass(
+                df_test_val, val_split=0.5, margin_allowance=0.02, class_col="institution"
+            )
+    else:
+        print("\nSplitting by subj...", end="\n", flush=True)
+        # Create train val sets
+        df_train, df_test_val = custom_dataset.train_val_split_multiclass(
+            df, val_split=0.4, margin_allowance=0.02, class_col="institution"
+        )
+        df_test, df_val = custom_dataset.train_val_split_multiclass(
+                df_test_val, val_split=0.5, margin_allowance=0.02, class_col="institution"
+            )
+    # Save them if required
+    if save_path_df:
+        for df_tmp, df_name in [(df_train, 'df_train.csv'), (df_val, 'df_val.csv'), (df_test, 'df_test.csv')]:
+            df_tmp.to_csv(os.path.join(save_path_df, df_name), sep=",", index_label='index')
+
+    # Discard powerline noise if required
+    if discard_line_noise:
+        # Remove class
+        df_train = df_train.loc[df_train.category_id != 0]
+        df_val = df_val.loc[df_val.category_id != 0]
+        # Update ids to start in zero
+        df_train.loc[:,'category_id'] = df_train.category_id - 1
+        df_val.loc[:,'category_id'] = df_val.category_id - 1
     
-    return [(train_subj, train_real), (val_subj, val_real)]
+    # Binary classification. 0=Noise, 1=Others (physiological and pathological)
+    if binary:
+        print('Grouping Pathology and physiology in one class\n', end='\n', flush=True)
+        df_train = df_train.replace({'category_id': {2: 0, 1:0, 0:1}})
+        df_val = df_val.replace({'category_id': {2: 0, 1:0, 0:1}})
+   
+    # Shuffle them
+    df_train = df_train.sample(frac=1).reset_index(drop=True)
+    df_val = df_val.sample(frac=1).reset_index(drop=True)
 
-def train_val_split_multiclass(df, val_split=0.3, margin_allowance = 0.02, class_col='institution'):
-    df_val = []
-    df_train = []
-    for id_class in np.unique(df[class_col]):
-        df_class = df[df[class_col]==id_class]
-        # Run train val split
-        (train_subj, _), (val_subj, _) = train_val_split(df_class, val_split, margin_allowance)
-        # Add train subj df
-        for subj in train_subj:
-            if len(df_train)==0:
-                df_train = df_class[df_class['patient_id']==subj]
-            else:
-                df_train = pd.concat([df_train, df_class[df_class['patient_id']==subj]])
-        # Add val subj df
-        for subj in val_subj:
-            if len(df_val)==0:
-                df_val = df_class[df_class['patient_id']==subj]
-            else:
-                df_val = pd.concat([df_val, df_class[df_class['patient_id']==subj]])
+    # Deal with class imbalance
+    # Train set
+    train_labels = df_train.category_id.to_numpy()
+    # Probability per class
+    class_sample_counts = np.unique(train_labels, return_counts=True)[1]
+    cls_weights = 1 / torch.Tensor(class_sample_counts)
+    print(cls_weights)
+    # Map back to elements
+    weights = cls_weights[train_labels]
+    sampler = torch.utils.data.sampler.WeightedRandomSampler(
+        weights, len(train_labels), replacement=True
+    )
+
+    # Get dataset class
+    dataset_dict = {
+        "MultiLevelSpectrogramDir": custom_dataset.MultiLevelSpectrogramDir,
+        "SpectrogramDir": custom_dataset.SpectrogramDir
+    }
+    dataset_custom = dataset_dict[dataset_class]
+    # 1. Uncompress data
+    # First find tmp
+    tmpdir = utils.get_tmpdir()
+    if not previosly_uncompressed:
+        # Now uncompress
+        print("\nUncompressing data..", end="\n", flush=True)
+        utils.uncompress_zip(zip_files=zip_paths, out_dir=tmpdir)
+    # 2. Create dataset class
+    print("\nCreating dataset classes...", end="\n", flush=True)
+    train_data = dataset_custom(
+        df=df_train, input_folder=tmpdir, transform=transform_train
+    )
+    val_data = dataset_custom(
+        df=df_val, input_folder=tmpdir, transform=transform_val
+    )
     
-    return df_train.reset_index(), df_val.reset_index()
+    # Get class names
+    class_names = train_data.classes
 
-def compute_wavelet_transform(data_sig: np.ndarray,
-                              srate: int = 1200,
-                              min_freq: int = 1,
-                              max_freq: int = 590,
-                              freq_step: int = 5):
-    import scipy.fft as scifft
-    import scipy.stats as stats
+    # Wrapper to support full batches
+    if batch_size == -1:
+        print("Full")
+        train_batch_size = len(train_data)
+        val_batch_size = len(val_data)
+    else:
+        train_batch_size = batch_size
+        val_batch_size = batch_size
 
-    # variable number of wavelet cycles
-    # setup parameters
-    time  = np.arange(-1,1+1/srate, 1/srate) # best practice is to have time=0 at the center of the wavelet
-    frex  = np.arange(min_freq,max_freq,freq_step)        # frequency of wavelet, in Hz
+    # Turn images into data loaders
+    if binary:
+        print('using sampler')
+        train_dataloader = DataLoader(
+            train_data,
+            batch_size=train_batch_size,
+            # shuffle=True,  # Don't work with sampler
+            sampler=sampler,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+    else:
+        train_dataloader = DataLoader(
+            train_data,
+            batch_size=train_batch_size,
+            shuffle=True,  # Don't work with sampler
+            # sampler=sampler,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+    val_dataloader = DataLoader(
+        val_data,
+        batch_size=val_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
 
-    half_wave = int((len(time)-1)/2)
+    return train_dataloader, val_dataloader, class_names
 
-    # FFT parameters
 
-    nKern = len(time)
 
-    nData = len(data_sig)
+def create_dataloaders_tree(
+    zip_paths: str,
+    df_path: str,
+    batch_size: int,
+    num_workers: int = None,
+    random_split: bool = False,
+    previosly_uncompressed: bool = False,
+    discard_line_noise:bool = True
+):
+    """Creates training and testing DataLoaders.
 
-    nConv = nKern+nData-1
+  Takes in a training directory and testing directory path and turns
+  them into PyTorch Datasets and then into PyTorch DataLoaders.
 
-    dataX = scifft.fft(data_sig, nConv)
+  Args:
+    train_dir: Path to training directory.
+    test_dir: Path to testing directory.
+    transform: torchvision transforms to perform on training and testing data.
+    batch_size: Number of samples per batch in each of the DataLoaders.
+    num_workers: An integer for number of workers per DataLoader.
 
-    # initialize output time-frequency data
+  Returns:
+    A tuple of (train_dataloader, test_dataloader, class_names).
+    Where class_names is a list of the target classes.
+    Example usage:
+      train_dataloader, test_dataloader, class_names = \
+        = create_dataloaders(train_dir=path/to/train_dir,
+                             test_dir=path/to/test_dir,
+                             transform=some_transform,
+                             batch_size=32,
+                             num_workers=4)
+  """
+    import pandas as pd
+    if not num_workers:
+        num_workers = os.cpu_count()
+    # Read given dataframe
+    df = pd.read_csv(df_path, sep=",", index_col="index")
+    # Create train val sets
+    # Create train val sets
+    df_train, df_test_val = custom_dataset.train_val_split_multiclass(
+        df, val_split=0.4, margin_allowance=0.02, class_col="institution"
+    )
+    df_test, df_val = custom_dataset.train_val_split_multiclass(
+            df_test_val, val_split=0.5, margin_allowance=0.02, class_col="institution"
+        )
+    # Shuffle them
+    df_train = df_train.sample(frac=1).reset_index(drop=True)
+    df_val = df_val.sample(frac=1).reset_index(drop=True)
+    # Discard powerline noise if required
+    if discard_line_noise:
+        # Remove class
+        df_train = df_train.loc[df_train.category_id != 0]
+        df_val = df_val.loc[df_val.category_id != 0]
+        # Update ids to start in zero
+        df_train.loc[:,'category_id'] = df_train.category_id - 1
+        df_val.loc[:,'category_id'] = df_val.category_id - 1
+    print('Grouping Pathology and physiology in one class\n', end='\n', flush=True)
+    df_train = df_train.replace({'category_id': {2: 0, 1:0, 0:1}})
+    df_val = df_val.replace({'category_id': {2: 0, 1:0, 0:1}})
 
-    tf = np.zeros((len(frex),nData))
+    # 1. Uncompress data
+    # First find tmp
+    tmpdir = utils.get_tmpdir()
+    if not previosly_uncompressed:
+        # Now uncompress
+        print("\nUncompressing data..", end="\n", flush=True)
+        utils.uncompress_zip(zip_files=zip_paths, out_dir=tmpdir)
+        # 2. Create dataset class
+        print("\nCreating dataset classes...", end="\n", flush=True)
 
-    for fi in range(len(frex)):
-        
-        # create wavelet and get its FFT
-        # nCycles: determined experientally to compensate for the time/freq trade-off
-        nCycles = 0.0000363292 * frex[fi]**2 + 0.215155*frex[fi] + 2.23622 
-        s = nCycles/(2*np.pi*frex[fi])
-        cmw = np.multiply(np.exp(2*1j*np.pi*frex[fi]*time), np.exp(-time**2/(2*s**2)))
-        
-        cmwX = scifft.fft(cmw, nConv)
+    # Use ImageFolderCustom to create dataset(s)
+    train_data = custom_dataset.Dataset_DWT(df=df_train, input_folder=tmpdir)
+    val_data = custom_dataset.Dataset_DWT(df=df_val, input_folder=tmpdir)
 
-        # max-value normalize the spectrum of the wavelet
-        cmwX = cmwX/np.max(cmwX)
-        
-        # run convolution
-        conv = scifft.ifft(np.multiply(cmwX,dataX),nConv)
-        conv = conv[half_wave:-half_wave]
-        
-        # put power data into big matrix
-        tf[fi,:] = np.abs(conv)**2
-    
-    return tf
+    # Get class names
+    class_names = train_data.classes
+
+    # Wrapper to support full batches
+    if batch_size == -1:
+        print("Full")
+        train_batch_size = len(train_data)
+        val_batch_size = len(val_data)
+    else:
+        train_batch_size = batch_size
+        val_batch_size = batch_size
+
+    # Turn images into data loaders
+    train_dataloader = DataLoader(
+        train_data,
+        batch_size=train_batch_size,
+        shuffle=True,  # Don't work with sampler
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_dataloader = DataLoader(
+        val_data,
+        batch_size=val_batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_dataloader, val_dataloader, class_names
