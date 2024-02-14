@@ -11,11 +11,12 @@ from sklearn.model_selection import train_test_split
 # from torchvision import transforms
 import os
 import utils
+from features import get_DWT_features, compute_wavelet_transform
 
 # 1. Subclass torch.utils.data.Dataset
-class Dataset_DWT(Dataset):
+class DWTDir(Dataset):
     # 2. Initialize with a targ_dir and transform (optional) parameter.
-    def __init__(self, df: pd.DataFrame,  input_folder: str) -> None:
+    def __init__(self, df: pd.DataFrame, input_folder: str) -> None:
         """
         Args:
             df: DataFrame of the same type as segments.csv with only the subjects for the Dataset.
@@ -32,23 +33,29 @@ class Dataset_DWT(Dataset):
     def __len__(self):
         return len(self.df)
 
+    # 4. Overwrite the __getitem__() method
     def __getitem__(self, item):
         target = self.df.iloc[item]["category_id"]
         # This applies transforms as well
-        data = self.load_image(item)
+        data = self.load_data(item)
 
         return data, target  # return data, label (X, y)
 
     # 4. Make function to load images
-    def load_image(self, index: int) -> np.array:
+    def load_data(self, index: int) -> np.array:
         "Opens an image via a dataframe and returns it."
         sid = self.df.iloc[index]["segment_id"]
         # Get institution to map to zip file
         inst = self.df.iloc[index]["institution"]
-        # Get images
-        images = np.load(os.path.join(self.input_folder,f'{inst}/{sid}.npy'))
-        # images = images[1::2,:,:]
-        return images#.type(torch.float)
+        # Get data
+        map_dir = {
+            'fnusa': 'Dataset_Fnusa',
+            'mayo': 'Dataset_Mayo'
+        }
+        data = np.load(os.path.join(self.input_folder,f'{inst}/{map_dir[inst]}/{sid}.npy'))
+        data = get_DWT_features(data, "db4")
+        data = torch.from_numpy(data)
+        return data.type(torch.float)
 
 
 # 1. Subclass torch.utils.data.Dataset
@@ -460,61 +467,3 @@ def train_val_split_multiclass(
                 df_val = pd.concat([df_val, df_class[df_class["patient_id"] == subj]])
 
     return df_train.reset_index(), df_val.reset_index()
-
-
-def compute_wavelet_transform(
-    data_sig: np.ndarray,
-    srate: int = 1200,
-    min_freq: int = 1,
-    max_freq: int = 590,
-    freq_step: int = 5,
-):
-    import scipy.fft as scifft
-    import scipy.stats as stats
-
-    # variable number of wavelet cycles
-    # setup parameters
-    time = np.arange(
-        -1, 1 + 1 / srate, 1 / srate
-    )  # best practice is to have time=0 at the center of the wavelet
-    frex = np.arange(min_freq, max_freq, freq_step)  # frequency of wavelet, in Hz
-
-    half_wave = int((len(time) - 1) / 2)
-
-    # FFT parameters
-
-    nKern = len(time)
-
-    nData = len(data_sig)
-
-    nConv = nKern + nData - 1
-
-    dataX = scifft.fft(data_sig, nConv)
-
-    # initialize output time-frequency data
-
-    tf = np.zeros((len(frex), nData))
-
-    for fi in range(len(frex)):
-        # create wavelet and get its FFT
-        # nCycles: determined experientally to compensate for the time/freq trade-off
-        nCycles = 0.0000363292 * frex[fi] ** 2 + 0.215155 * frex[fi] + 2.23622
-        s = nCycles / (2 * np.pi * frex[fi])
-        cmw = np.multiply(
-            np.exp(2 * 1j * np.pi * frex[fi] * time),
-            np.exp(-(time**2) / (2 * s**2)),
-        )
-
-        cmwX = scifft.fft(cmw, nConv)
-
-        # max-value normalize the spectrum of the wavelet
-        cmwX = cmwX / np.max(cmwX)
-
-        # run convolution
-        conv = scifft.ifft(np.multiply(cmwX, dataX), nConv)
-        conv = conv[half_wave:-half_wave]
-
-        # put power data into big matrix
-        tf[fi, :] = np.abs(conv) ** 2
-
-    return tf, frex

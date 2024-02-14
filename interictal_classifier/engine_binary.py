@@ -60,25 +60,25 @@ def train_step(
     # Lists to save total metrics
     results_train = {
         "train_loss": [],
-        "train_acc": [],
-        "train_bal_acc": [],
-        "train_prec": [],
-        "train_recall": [],
-        "train_f1": []
+        # "train_acc": [],
+        # "train_bal_acc": [],
+        # "train_prec": [],
+        # "train_recall": [],
+        # "train_f1": []
     }
     results_val = {
         "va_loss": [],
-        "val_acc": [],
-        "val_bal_acc": [],
-        "val_prec": [],
-        "val_recall": [],
-        "val_f1": [],
+        # "val_acc": [],
+        # "val_bal_acc": [],
+        # "val_prec": [],
+        # "val_recall": [],
+        # "val_f1": [],
     } 
 
     # Setup train loss and train accuracy values
     train_loss = 0
     # t_acc, bal_acc, prec, recall, f1
-    train_metrics = np.array([0,0,0,0,0])
+    # train_metrics = np.array([0,0,0,0,0])
 
     # stdout_fileno.write('dataloader \n')
     print(train_dataloader, end="\n", flush=True)
@@ -121,37 +121,37 @@ def train_step(
         y_pred_prob = torch.sigmoid(y_pred)
         # Add to total
         # Save results
-        y_total = np.concatenate([y_total, y.detach().numpy()])
-        y_pred_total = np.concatenate(
-            [y_pred_total, (np.round(y_pred_prob.detach().numpy())).astype(int)]
-        )
+        # y_total = np.concatenate([y_total, y.detach().numpy()])
+        # y_pred_total = np.concatenate(
+        #     [y_pred_total, (np.round(y_pred_prob.detach().numpy())).astype(int)]
+        # )
         # Check status to compute metrics
-        if len(np.unique(y_total)) == 2 and len(np.unique(y_pred_total)) == 2:
-            # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-            # to be able to consider accumulated batches. Assigns the same metric to all acum batches
-            # Check metrics
-            metrics_train = utils.classication_metrics_binary(y_total, y_pred_total)
-            metrics_train =  np.array(metrics_train)
-            train_metrics = np.add(train_metrics, metrics_train*acum_batches)
-            # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-            # to be able to consider accumulated batches. Assigns the same metric to all acum batches
-            # Reset variables
-            y_total = np.array([])
-            y_pred_total = np.array([])
-            acum_batches = 1
-        else:
-            acum_batches += 1
+        # if len(np.unique(y_total)) == 2 and len(np.unique(y_pred_total)) == 2:
+        #     # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
+        #     # to be able to consider accumulated batches. Assigns the same metric to all acum batches
+        #     # Check metrics
+        #     metrics_train = utils.classication_metrics_binary(y_total, y_pred_total)
+        #     metrics_train =  np.array(metrics_train)
+        #     train_metrics = np.add(train_metrics, metrics_train*acum_batches)
+        #     # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
+        #     # to be able to consider accumulated batches. Assigns the same metric to all acum batches
+        #     # Reset variables
+        #     y_total = np.array([])
+        #     y_pred_total = np.array([])
+        #     acum_batches = 1
+        # else:
+        acum_batches += 1
         
         # Validate
         if batch % validation_freq == 0 and batch != 0:
             # Loss
             train_loss = train_loss/n_batches
             # Metrics
-            unused_batches = 0
-            if acum_batches > 1:
-                unused_batches = acum_batches
-            train_metrics = train_metrics / (n_batches - unused_batches)
-            train_metrics = train_metrics.tolist()
+            # unused_batches = 0
+            # if acum_batches > 1:
+            #     unused_batches = acum_batches
+            # train_metrics = train_metrics / (n_batches - unused_batches)
+            # train_metrics = train_metrics.tolist()
             # Print them
             # print(f"\nTrain metrics batch {batch}, epoch {epoch}", end="\n", flush=True)
             # # stdout_fileno.write(f'Accuracy training in batch {batch}: {(y_pred_class == y).sum().item()/len(y_pred)} \n')
@@ -159,7 +159,7 @@ def train_step(
             #     *train_metrics
             # )
             # Merge them 
-            train_metrics = [train_loss]+train_metrics
+            train_metrics = [train_loss]#+train_metrics
             # Append to global results
             results_train = save_results(results_train, train_metrics)
             # Print Loss
@@ -168,7 +168,7 @@ def train_step(
             # Reset metrics
             train_loss = 0
             # t_acc, bal_acc, prec, recall, f1
-            train_metrics = np.array([0,0,0,0,0])
+            # train_metrics = np.array([0,0,0,0,0])
             y_total = np.array([])
             y_pred_total = np.array([])
             acum_batches = 1
@@ -176,7 +176,7 @@ def train_step(
 
 
             # Validation
-            val_loss, val_metrics = test_step(
+            val_loss = test_step(
                 model=model, dataloader=test_dataloader, loss_fn=loss_fn, device=device
             )
             # Print them
@@ -186,7 +186,7 @@ def train_step(
             #     *val_metrics
             # )
             # Merge them
-            val_metrics =  [val_loss]+val_metrics
+            val_metrics =  [val_loss]#+val_metrics
             results_val = save_results(results_val, val_metrics)
 
             # Print Loss
@@ -253,19 +253,19 @@ def test_step(
             test_loss += loss.item()
 
             # Apply softmax
-            y_pred_prob = torch.sigmoid(test_pred_logits)
+            # y_pred_prob = torch.sigmoid(test_pred_logits)
 
-            # Save results
-            y_total = np.concatenate([y_total, y.detach().numpy()])
-            y_pred_total = np.concatenate(
-                [y_pred_total, (np.round(y_pred_prob.detach().numpy())).astype(int)]
-            )
+            # # Save results
+            # y_total = np.concatenate([y_total, y.detach().numpy()])
+            # y_pred_total = np.concatenate(
+            #     [y_pred_total, (np.round(y_pred_prob.detach().numpy())).astype(int)]
+            # )
 
     # Check metrics
-    t_metrics = utils.classication_metrics_binary(y_total, y_pred_total)
+    # t_metrics = utils.classication_metrics_binary(y_total, y_pred_total)
     # Adjust metrics to get average loss and accuracy per batch
     test_loss = test_loss / len(dataloader)
-    return test_loss, t_metrics
+    return test_loss#, t_metrics
 
 
 def train(
@@ -316,19 +316,19 @@ def train(
     # Create empty results dictionary
     results_train = {
         "train_loss": [],
-        "train_acc": [],
-        "train_bal_acc": [],
-        "train_prec": [],
-        "train_recall": [],
-        "train_f1": []
+        # "train_acc": [],
+        # "train_bal_acc": [],
+        # "train_prec": [],
+        # "train_recall": [],
+        # "train_f1": []
     }
     results_val = {
         "va_loss": [],
-        "val_acc": [],
-        "val_bal_acc": [],
-        "val_prec": [],
-        "val_recall": [],
-        "val_f1": [],
+        # "val_acc": [],
+        # "val_bal_acc": [],
+        # "val_prec": [],
+        # "val_recall": [],
+        # "val_f1": [],
     } 
 
     # Make sure model on target device

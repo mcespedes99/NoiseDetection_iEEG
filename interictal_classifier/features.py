@@ -2,8 +2,6 @@ import scipy
 import numpy as np
 from collections import defaultdict, Counter
 import pywt
-import custom_dataset
-
 
 def calculate_entropy(list_values):
     counter_values = Counter(list_values).most_common()
@@ -22,7 +20,9 @@ def calculate_statistics(list_values):
     std = np.nanstd(list_values)
     var = np.nanvar(list_values)
     rms = np.nanmean(np.sqrt(list_values**2))
-    return [n5, n25, n75, n95, median, mean, std, var, rms]
+    kurtosis_value = scipy.stats.kurtosis(list_values)
+    skewness_value = scipy.stats.skew(list_values)
+    return [n5, n25, n75, n95, median, mean, std, var, rms, kurtosis_value, skewness_value]
 
 
 def calculate_crossings(list_values):
@@ -60,8 +60,66 @@ def get_CWT_features(
     elif srate==1200:
         max_freq = 590
     # Compute full transform and z-score per freq
-    time_freq_data, freq = custom_dataset.compute_wavelet_transform(data_sig, srate=srate, min_freq = 1, max_freq=max_freq)
+    time_freq_data, freq = compute_wavelet_transform(data_sig, srate=srate, min_freq = 1, max_freq=max_freq)
     return time_freq_data
+
+def compute_wavelet_transform(
+    data_sig: np.ndarray,
+    srate: int = 1200,
+    min_freq: int = 1,
+    max_freq: int = 590,
+    freq_step: int = 5,
+):
+    import scipy.fft as scifft
+    import scipy.stats as stats
+
+    # variable number of wavelet cycles
+    # setup parameters
+    time = np.arange(
+        -1, 1 + 1 / srate, 1 / srate
+    )  # best practice is to have time=0 at the center of the wavelet
+    frex = np.arange(min_freq, max_freq, freq_step)  # frequency of wavelet, in Hz
+
+    half_wave = int((len(time) - 1) / 2)
+
+    # FFT parameters
+
+    nKern = len(time)
+
+    nData = len(data_sig)
+
+    nConv = nKern + nData - 1
+
+    dataX = scifft.fft(data_sig, nConv)
+
+    # initialize output time-frequency data
+
+    tf = np.zeros((len(frex), nData))
+
+    for fi in range(len(frex)):
+        # create wavelet and get its FFT
+        # nCycles: determined experientally to compensate for the time/freq trade-off
+        nCycles = 0.0000363292 * frex[fi] ** 2 + 0.215155 * frex[fi] + 2.23622
+        s = nCycles / (2 * np.pi * frex[fi])
+        cmw = np.multiply(
+            np.exp(2 * 1j * np.pi * frex[fi] * time),
+            np.exp(-(time**2) / (2 * s**2)),
+        )
+
+        cmwX = scifft.fft(cmw, nConv)
+
+        # max-value normalize the spectrum of the wavelet
+        cmwX = cmwX / np.max(cmwX)
+
+        # run convolution
+        conv = scifft.ifft(np.multiply(cmwX, dataX), nConv)
+        conv = conv[half_wave:-half_wave]
+
+        # put power data into big matrix
+        tf[fi, :] = np.abs(conv) ** 2
+
+    return tf, frex
+
 
 def get_CWT_features_bands(
     data_sig: np.ndarray,
@@ -84,6 +142,12 @@ def get_CWT_features_bands(
         low_pass = None
         n_remove = 15
         output = np.zeros([5,len(data_sig)-2*n_remove])
+    elif srate==1024:
+        # Based on bands [(20,100), (80,250), (200,500), (450,510)]
+        n_remove = 13
+        params = [(60, 3), (165,5), (350,5), (480,35)]
+        low_pass = None
+        output = np.zeros([5,len(data_sig)-2*n_remove])
 
     # First row: loss pass filtered data with 
     filtered_data = data_sig
@@ -93,7 +157,7 @@ def get_CWT_features_bands(
         # Create raw
         raw = mne.io.RawArray(data_sig.reshape(1,-1)/10000, info, verbose='ERROR')
         # Filter
-        new_raw = raw.copy().filter(l_freq=low_pass, h_freq=None, verbose='ERROR')
+        new_raw = raw.copy().filter(l_freq=None, h_freq=low_pass, verbose='ERROR', method='iir', iir_params={'order':3, 'ftype':'butter'})
         filtered_data = new_raw.get_data().squeeze()*10000
     # Removing first and last 0.01 s elements due to edge effects
     output[0,:] = stats.zscore(filtered_data)[n_remove:-n_remove]
@@ -160,6 +224,12 @@ def get_Hilbert_features(
         bands = [(20,100), (80,250), (200,590), (500,590)]
         low_pass = None
         output = np.zeros([5,len(data_sig)-2*n_remove])
+    elif srate==1024:
+        # Based on bands [(20,100), (80,250), (200,590), (500,590)]
+        n_remove = 13
+        bands = [(20,100), (80,250), (200,500), (450,510)]
+        low_pass = None
+        output = np.zeros([5,len(data_sig)-2*n_remove])
 
     # Convert to MNE
     # Fill info with anything
@@ -170,14 +240,14 @@ def get_Hilbert_features(
     filtered_data = data_sig
     if low_pass:   
         # Filter
-        new_raw = raw.copy().filter(l_freq=low_pass, h_freq=None, verbose='ERROR')
+        new_raw = raw.copy().filter(l_freq=None, h_freq=low_pass, verbose='ERROR', method='iir', iir_params={'order':3, 'ftype':'butter'})
         filtered_data = new_raw.get_data().squeeze()*10000
     output[0,:] = stats.zscore(filtered_data)[n_remove:-n_remove]
 
     # Run hilbert transform
     for fi, (low_freq, high_freq) in enumerate(bands):
         # Bandpass filter the data
-        new_raw = raw.copy().filter(l_freq=low_freq, h_freq=high_freq, verbose='ERROR')
+        new_raw = raw.copy().filter(l_freq=low_freq, h_freq=high_freq, verbose='ERROR', method='iir', iir_params={'order':3, 'ftype':'butter'})
         filtered_data = new_raw.get_data().squeeze()*10000
         # Compute hilbert transform
         analytic_signal = hilbert(filtered_data)
@@ -194,6 +264,8 @@ def get_Hilbert_CWT_features(
         n_remove = 25
     elif srate==1200:
         n_remove = 15
+    elif srate==1024:
+        n_remove = 13
     # Get CWT features
     data_CWT = get_CWT_features_bands(data_sig, srate)
     # Get Hilbert features

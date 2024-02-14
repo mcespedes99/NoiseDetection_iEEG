@@ -180,6 +180,8 @@ def create_dataloaders_uncompress(
     # Read given dataframe
     df_train = pd.read_csv(df_train_path, sep=",", index_col="index")
     df_val = pd.read_csv(df_val_path, sep=",", index_col="index")
+    print(f'Percentage df train: {len(df_train)/(len(df_train)+len(df_val))}\n', end='\n', flush=True)
+    
     
     # Binary classification. 0=Noise, 1=Others (physiological and pathological)
     if binary:
@@ -190,20 +192,6 @@ def create_dataloaders_uncompress(
     # Shuffle them
     df_train = df_train.sample(frac=1).reset_index(drop=True)
     df_val = df_val.sample(frac=1).reset_index(drop=True)
-
-    # Deal with class imbalance
-    # Train set
-    train_labels = df_train.category_id.to_numpy()
-    print(train_labels)
-    # Probability per class
-    class_sample_counts = np.unique(train_labels, return_counts=True)[1]
-    cls_weights = 1 / torch.Tensor(class_sample_counts)
-    print(cls_weights)
-    # Map back to elements
-    weights = cls_weights[train_labels]
-    sampler = torch.utils.data.sampler.WeightedRandomSampler(
-        weights, len(train_labels), replacement=True
-    )
 
     # Get dataset class
     dataset_custom = custom_dataset.SpectrogramDir
@@ -235,18 +223,6 @@ def create_dataloaders_uncompress(
         train_batch_size = batch_size
         val_batch_size = batch_size
 
-    # Turn images into data loaders
-    # if binary:
-    #     print('using sampler')
-    #     train_dataloader = DataLoader(
-    #         train_data,
-    #         batch_size=train_batch_size,
-    #         # shuffle=True,  # Don't work with sampler
-    #         sampler=sampler,
-    #         num_workers=num_workers,
-    #         pin_memory=True,
-    #     )
-    # else:
     train_dataloader = DataLoader(
         train_data,
         batch_size=train_batch_size,
@@ -424,17 +400,16 @@ def create_dataloaders_manual(
 
     return train_dataloader, val_dataloader, class_names
 
-
-
 def create_dataloaders_tree(
     zip_paths: str,
-    df_path: str,
+    df_train_path: str,
+    df_val_path: str,
     batch_size: int,
     num_workers: int = None,
-    random_split: bool = False,
     previosly_uncompressed: bool = False,
-    discard_line_noise:bool = True
+    binary:bool = False,
 ):
+    # Created dataloaders given val and train dfs
     """Creates training and testing DataLoaders.
 
   Takes in a training directory and testing directory path and turns
@@ -462,30 +437,23 @@ def create_dataloaders_tree(
     if not num_workers:
         num_workers = os.cpu_count()
     # Read given dataframe
-    df = pd.read_csv(df_path, sep=",", index_col="index")
-    # Create train val sets
-    # Create train val sets
-    df_train, df_test_val = custom_dataset.train_val_split_multiclass(
-        df, val_split=0.4, margin_allowance=0.02, class_col="institution"
-    )
-    df_test, df_val = custom_dataset.train_val_split_multiclass(
-            df_test_val, val_split=0.5, margin_allowance=0.02, class_col="institution"
-        )
+    df_train = pd.read_csv(df_train_path, sep=",", index_col="index")
+    df_val = pd.read_csv(df_val_path, sep=",", index_col="index")
+    print(f'Percentage df train: {len(df_train)/(len(df_train)+len(df_val))}\n', end='\n', flush=True)
+    
+    
+    # Binary classification. 0=Noise, 1=Others (physiological and pathological)
+    if binary:
+        print('Grouping Pathology and physiology in one class\n', end='\n', flush=True)
+        df_train = df_train.replace({'category_id': {2: 0, 1:0, 0:1}})
+        df_val = df_val.replace({'category_id': {2: 0, 1:0, 0:1}})
+   
     # Shuffle them
     df_train = df_train.sample(frac=1).reset_index(drop=True)
     df_val = df_val.sample(frac=1).reset_index(drop=True)
-    # Discard powerline noise if required
-    if discard_line_noise:
-        # Remove class
-        df_train = df_train.loc[df_train.category_id != 0]
-        df_val = df_val.loc[df_val.category_id != 0]
-        # Update ids to start in zero
-        df_train.loc[:,'category_id'] = df_train.category_id - 1
-        df_val.loc[:,'category_id'] = df_val.category_id - 1
-    print('Grouping Pathology and physiology in one class\n', end='\n', flush=True)
-    df_train = df_train.replace({'category_id': {2: 0, 1:0, 0:1}})
-    df_val = df_val.replace({'category_id': {2: 0, 1:0, 0:1}})
 
+    # Get dataset class
+    dataset_custom = custom_dataset.DWTDir
     # 1. Uncompress data
     # First find tmp
     tmpdir = utils.get_tmpdir()
@@ -493,13 +461,15 @@ def create_dataloaders_tree(
         # Now uncompress
         print("\nUncompressing data..", end="\n", flush=True)
         utils.uncompress_zip(zip_files=zip_paths, out_dir=tmpdir)
-        # 2. Create dataset class
-        print("\nCreating dataset classes...", end="\n", flush=True)
-
-    # Use ImageFolderCustom to create dataset(s)
-    train_data = custom_dataset.Dataset_DWT(df=df_train, input_folder=tmpdir)
-    val_data = custom_dataset.Dataset_DWT(df=df_val, input_folder=tmpdir)
-
+    # 2. Create dataset class
+    print("\nCreating dataset classes...", end="\n", flush=True)
+    train_data = dataset_custom(
+        df=df_train, input_folder=tmpdir
+    )
+    val_data = dataset_custom(
+        df=df_val, input_folder=tmpdir
+    )
+    
     # Get class names
     class_names = train_data.classes
 
@@ -512,11 +482,11 @@ def create_dataloaders_tree(
         train_batch_size = batch_size
         val_batch_size = batch_size
 
-    # Turn images into data loaders
     train_dataloader = DataLoader(
         train_data,
         batch_size=train_batch_size,
         shuffle=True,  # Don't work with sampler
+        # sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
     )

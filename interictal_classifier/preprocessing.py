@@ -88,9 +88,9 @@ def preprocess_data(signal_array: np.ndarray, df_channel: pd.DataFrame, target_s
     # _ = mne.viz.plot_filter(filter_params, raw_dn.info["sfreq"], flim=(0.01, 3))
     return raw.get_data().squeeze()*10000
 
-def convert_to_numpy():
-    print('Using 1200 Hz', end='\n', flush=True)
-    zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo.zip']
+def convert_to_numpy(srate: int):
+    print(f'Using {srate} Hz', end='\n', flush=True)
+    zip_files = ['/home/mcesped/scratch/Datasets/Dataset_UFlorida.zip']#, '/home/mcesped/scratch/Datasets/Dataset_Fnusa.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo.zip']
     # print(zip_files)
     for zip_id, zip_file in enumerate(zip_files):
         with zipfile.ZipFile(zip_file, mode="r") as f:
@@ -118,13 +118,13 @@ def convert_to_numpy():
                 with f.open(seg_file) as myfile:
                     data = scipy.io.loadmat(myfile)['data'].squeeze()
                 # Preprocess data
-                data = preprocess_data(data, df_seg.loc[idx], 1200)
+                data = preprocess_data(data, df_seg.loc[idx], srate)
                 # Write to tmp file
                 np.save(os.path.join(new_dir, sid+'.npy'),data)
             # Also write df to path
             df_seg.to_csv(os.path.join(new_dir, "segments_new.csv"), sep=',', index_label='index')
             #  Create zipfile from dir
-            archive_name = os.path.join('/home/mcesped/scratch/Datasets/', dir_name+'_np')
+            archive_name = os.path.join('/home/mcesped/scratch/Datasets/', dir_name+f'_{srate}')
             shutil.make_archive(
                 archive_name,
                 'zip',
@@ -312,15 +312,22 @@ def get_features(data, features: str, srate: int):
     return data
 
 def convert_to_features(srate, features: str):
-    if srate == 2048:
-        print(f'{features} 2048 Hz', end='\n', flush=True)
-        zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_2048.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_2048.zip']
-        out_dir = '/home/mcesped/scratch/Datasets/2048Hz'
-    else:
-        print(f'{features} 1200 Hz', end='\n', flush=True)
-        zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_1200.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_1200.zip']
-        # zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Mayo_np.zip']
-        out_dir = '/home/mcesped/scratch/Datasets/1200Hz'
+    # if srate == 2048:
+    #     print(f'{features} 2048 Hz', end='\n', flush=True)
+    #     zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_2048.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_2048.zip']
+    #     out_dir = '/home/mcesped/scratch/Datasets/2048Hz'
+    # elif srate == 1024:
+    #     print(f'{features} 1024 Hz', end='\n', flush=True)
+    #     zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_2048.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_2048.zip']
+    #     out_dir = '/home/mcesped/scratch/Datasets/2048Hz'
+    # else:
+    #     print(f'{features} 1200 Hz', end='\n', flush=True)
+    #     zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_1200.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_1200.zip']
+    #     # zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Mayo_np.zip']
+    #     out_dir = '/home/mcesped/scratch/Datasets/1200Hz'
+    print(f'{features} {srate} Hz', end='\n', flush=True)
+    zip_files = [f'/home/mcesped/scratch/Datasets/Dataset_Fnusa_{srate}.zip', f'/home/mcesped/scratch/Datasets/Dataset_Mayo_{srate}.zip']
+    out_dir = f'/home/mcesped/scratch/Datasets/{srate}Hz'
     print("\nUsing zipfiles:", end="\n", flush=True)
     print(zip_files)
     print(f"\nOutputting to directory {out_dir}:", end="\n", flush=True)
@@ -381,3 +388,4 @@ if __name__=="__main__":
     parser.add_argument("-f", "--features", type=str, required=True)
     args = parser.parse_args()
     convert_to_features(args.srate, args.features)
+    # convert_to_numpy(args.srate)

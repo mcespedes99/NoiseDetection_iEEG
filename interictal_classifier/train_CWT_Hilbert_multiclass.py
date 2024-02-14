@@ -10,7 +10,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     import sys
     import model
     import data_setup
-    from engine_binary import train
+    from engine_multiclass import train
     import torch.optim.lr_scheduler as lr_scheduler
     import utils
     import torch.nn as nn
@@ -34,7 +34,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         'Hilbert': 1
     }
     input_size = input_size_map[features] # Number of images per example
-    validation_freq = 20
+    validation_freq = 500
     input_length_map = {
         2048: 6094,
         1024: 3046
@@ -46,17 +46,16 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         f"/home/mcesped/scratch/Datasets/{srate}Hz/Dataset_Mayo_Combined.zip",
     ]
     # df_path = '/scratch/mcesped/Datasets/segments_mayo_fnusa_curated_big_version.csv'
-    df_path = '/scratch/mcesped/Datasets/segments_mayo_fnusa_curated_short_version.csv'
-    df_train_path = '/scratch/mcesped/Datasets/Noise_detection/df_train_curated.csv'
-    df_val_path = '/scratch/mcesped/Datasets/Noise_detection/df_val_curated.csv'
+    df_train_path = '/scratch/mcesped/Datasets/Multiclass/df_train_full.csv'
+    df_val_path = '/scratch/mcesped/Datasets/Multiclass/df_val_full.csv'
 
-    train_transform = transforms.Compose(
-        [
+    train_transform = None #transforms.Compose(
+        #[
             #transforms.Resize((30, 100), antialias=True),
-            transforms.RandomHorizontalFlip(p=0.3),
+         #   transforms.RandomHorizontalFlip(p=0.3),
             # utils.RandomMask(p=0.4, f_max_size= 1, t_max_size = int(0.2*input_length), n_masks_f=2, n_masks_t=3),
-        ]
-    )
+        #]
+    #)
     val_transform = (
         None  # transforms.Compose([transforms.Resize((30, 100), antialias=True)])
     )
@@ -76,11 +75,11 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         df_val_path,
         train_transform,
         val_transform,
-        batch_size=32,
+        batch_size=200,
         features=features,
         num_workers=processes,
         dataset_class="SpectrogramDir",
-        binary=True,
+        binary=False,
         previosly_uncompressed = False
     )
     # data_setup.create_dataloaders_manual(
@@ -107,15 +106,16 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     NUM_EPOCHS = 100
 
     # Create model
-    n_classes = 1
+    n_classes = 3
     models = {
         "CNN_Long_Data": model.CNN_Long_Data(n_classes=n_classes, input_size=input_size, input_length=input_length), # 35,516
-        "CNN_RNN_Long_Data": model.CNN_RNN_Long_Data(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data2": model.CNN_Long_Data2(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data3": model.CNN_Long_Data3(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data4": model.CNN_Long_Data4(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data5": model.CNN_Long_Data5(n_classes=n_classes, input_size=input_size, input_length=input_length),
+        "CNN_Long_Data6": model.CNN_Long_Data6(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Resnet": model.custom_resnet34(n_classes = n_classes, input_size=input_size),
+        "CNN_RNN_Long_Data": model.CNN_RNN_Long_Data(n_classes=n_classes, input_size=input_size, input_length=input_length),
     }
     model_0 = models[model_name].to(device)
     print(f"Model: {model_0}")
@@ -140,8 +140,9 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         )
 
     # Setup loss function and optimizer
-    loss_fn = nn.BCEWithLogitsLoss() #weight=cls_weights
-    optimizer = torch.optim.Adam(params=model_0.parameters(), lr=0.001)
+    loss_fn = nn.CrossEntropyLoss() #weight=cls_weights
+    # optimizer = torch.optim.Adam(params=model_0.parameters(), lr=0.001)
+    optimizer = torch.optim.SGD(params=model_0.parameters(), lr=0.01, momentum=0.9, weight_decay=0.001)
     scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
     # Start the timer
