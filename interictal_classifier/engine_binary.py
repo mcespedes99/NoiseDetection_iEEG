@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple
 import sys
 import utils
 import os
+import sklearn.metrics as skm
 import numpy as np
 
 def save_results(results: Dict, list_values: List):
@@ -32,7 +33,9 @@ def train_step(
     validation_freq: int,
     epoch: int,
     early_stopping,
-    scheduler
+    scheduler,
+    n_iters,
+    max_iter: int = None
 ) -> Tuple[float, float]:
     """Trains a PyTorch model for a single epoch.
 
@@ -72,7 +75,7 @@ def train_step(
         # "val_bal_acc": [],
         # "val_prec": [],
         # "val_recall": [],
-        # "val_f1": [],
+        "val_auprc": [],
     } 
 
     # Setup train loss and train accuracy values
@@ -88,21 +91,18 @@ def train_step(
     y_pred_total = np.array([])
 
     n_batches = 0
+    # validation_freq = int(len(train_dataloader)*validation_freq)
+    print(f'Using a validation frequency of {validation_freq}\n', flush=True)
     # Loop through data loader data batches
     for batch, (X, y) in enumerate(train_dataloader):
+        n_iters += 1
         n_batches += 1
         # Put model in train mode
         model.train()
-        # stdout_fileno.write('Init \n')
-        # print('init', end="\n", flush=True)
         # Send data to target device
         X, y = X.to(device), y.to(device)
-        # stdout_fileno.write('1 \n')
-        # print('1', end="\n", flush=True)
         # 1. Forward pass
         y_pred = model(X).squeeze()
-        # stdout_fileno.write('2 \n')
-        # print('2', end="\n", flush=True)
         # 2. Calculate  and accumulate loss
         loss = loss_fn(y_pred.type(torch.float), y.type(torch.float))
         train_loss += loss.item()
@@ -115,50 +115,13 @@ def train_step(
 
         # 5. Optimizer step
         optimizer.step()
-        # stdout_fileno.write('Pred \n')
-        # print('Pred', end="\n", flush=True)
-        # Calculate and accumulate accuracy metric across all batches
-        y_pred_prob = torch.sigmoid(y_pred)
-        # Add to total
-        # Save results
-        # y_total = np.concatenate([y_total, y.detach().numpy()])
-        # y_pred_total = np.concatenate(
-        #     [y_pred_total, (np.round(y_pred_prob.detach().numpy())).astype(int)]
-        # )
-        # Check status to compute metrics
-        # if len(np.unique(y_total)) == 2 and len(np.unique(y_pred_total)) == 2:
-        #     # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-        #     # to be able to consider accumulated batches. Assigns the same metric to all acum batches
-        #     # Check metrics
-        #     metrics_train = utils.classication_metrics_binary(y_total, y_pred_total)
-        #     metrics_train =  np.array(metrics_train)
-        #     train_metrics = np.add(train_metrics, metrics_train*acum_batches)
-        #     # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-        #     # to be able to consider accumulated batches. Assigns the same metric to all acum batches
-        #     # Reset variables
-        #     y_total = np.array([])
-        #     y_pred_total = np.array([])
-        #     acum_batches = 1
-        # else:
+
         acum_batches += 1
         
         # Validate
-        if batch % validation_freq == 0 and batch != 0:
+        if batch % validation_freq == 0 and n_iters != 1:
             # Loss
             train_loss = train_loss/n_batches
-            # Metrics
-            # unused_batches = 0
-            # if acum_batches > 1:
-            #     unused_batches = acum_batches
-            # train_metrics = train_metrics / (n_batches - unused_batches)
-            # train_metrics = train_metrics.tolist()
-            # Print them
-            # print(f"\nTrain metrics batch {batch}, epoch {epoch}", end="\n", flush=True)
-            # # stdout_fileno.write(f'Accuracy training in batch {batch}: {(y_pred_class == y).sum().item()/len(y_pred)} \n')
-            # utils.print_key_metrics_binary(
-            #     *train_metrics
-            # )
-            # Merge them 
             train_metrics = [train_loss]#+train_metrics
             # Append to global results
             results_train = save_results(results_train, train_metrics)
@@ -169,41 +132,45 @@ def train_step(
             train_loss = 0
             # t_acc, bal_acc, prec, recall, f1
             # train_metrics = np.array([0,0,0,0,0])
-            y_total = np.array([])
-            y_pred_total = np.array([])
+            # y_total = np.array([])
+            # y_pred_total = np.array([])
             acum_batches = 1
             n_batches = 0
 
 
             # Validation
-            val_loss = test_step(
-                model=model, dataloader=test_dataloader, loss_fn=loss_fn, device=device
-            )
-            # Print them
-            # print(f"\nVal metrics batch {batch}, epoch {epoch}", end="\n", flush=True)
-            # # stdout_fileno.write(f'Accuracy training in batch {batch}: {(y_pred_class == y).sum().item()/len(y_pred)} \n')
-            # utils.print_key_metrics_binary(
-            #     *val_metrics
-            # )
-            # Merge them
-            val_metrics =  [val_loss]#+val_metrics
-            results_val = save_results(results_val, val_metrics)
+            if test_dataloader is not None:
+                val_loss, metric = test_step(
+                    model=model, dataloader=test_dataloader, loss_fn=loss_fn, device=device
+                )
+                # Print them
+                # print(f"\nVal metrics batch {batch}, epoch {epoch}", end="\n", flush=True)
+                # # stdout_fileno.write(f'Accuracy training in batch {batch}: {(y_pred_class == y).sum().item()/len(y_pred)} \n')
+                # utils.print_key_metrics_binary(
+                #     *val_metrics
+                # )
+                # Merge them
+                val_metrics =  [val_loss, metric]#+val_metrics
+                results_val = save_results(results_val, val_metrics)
 
-            # Print Loss
-            print(f'\n Validation loss: {val_loss:.3f}\n', end="\n", flush=True)
+                # Print Loss
+                print(f'\n Validation loss: {val_loss:.3f}\n', end="\n", flush=True)
 
-            # Change scheduler
-            scheduler.step()
-            print(f'\n Learning rate: {optimizer.param_groups[0]["lr"]}\n', end="\n", flush=True)
+                # Change scheduler
+                scheduler.step()
+                print(f'\n Learning rate: {optimizer.param_groups[0]["lr"]}\n', end="\n", flush=True)
 
-            # Checkpoint: earlystop
-            early_stopping(val_loss, model)
+                # Checkpoint: earlystop
+                early_stopping(metric, model)
 
+            # Training can stop for 2 reasons: early stop or max_iter reached
+            if (max_iter is not None) and (n_iters >= max_iter):
+                early_stopping.early_stop = True
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
     # print(t_metrics)
-    return results_train, results_val, early_stopping.early_stop
+    return results_train, results_val, early_stopping.early_stop, n_iters
 
 
 def test_step(
@@ -249,23 +216,33 @@ def test_step(
             test_pred_logits = model(X).squeeze()
 
             # 2. Calculate and accumulate loss
-            loss = loss_fn(test_pred_logits.type(torch.float), y.type(torch.float))
-            test_loss += loss.item()
+            if len(y)>0:
+                loss = loss_fn(test_pred_logits.type(torch.float), y.type(torch.float))
+                test_loss += loss.item()
 
             # Apply softmax
-            # y_pred_prob = torch.sigmoid(test_pred_logits)
+            y_pred_prob = torch.sigmoid(test_pred_logits)
 
             # # Save results
-            # y_total = np.concatenate([y_total, y.detach().numpy()])
-            # y_pred_total = np.concatenate(
-            #     [y_pred_total, (np.round(y_pred_prob.detach().numpy())).astype(int)]
-            # )
+            y_total = np.concatenate([y_total, y.detach().numpy()])
+            y_pred_total = np.concatenate(
+                [y_pred_total, y_pred_prob.detach().numpy()]
+            )
 
     # Check metrics
+    # PR AUC
+    prec, recall, _ = skm.precision_recall_curve(y_true=y_total, probas_pred=y_pred_total)
+    auprc = skm.auc(recall, prec)
+    print(f'\n Validation auprc: {auprc:.3f}\n', end="\n", flush=True)
+    #ROC AUC
+    auroc = skm.roc_auc_score(y_true=y_total, y_score=y_pred_total)
+    # Print them
+    print(f'\n Validation auprc: {auprc:.3f}\n', end="\n", flush=True)
+    print(f'\n Validation auroc: {auroc:.3f}\n', end="\n", flush=True)
     # t_metrics = utils.classication_metrics_binary(y_total, y_pred_total)
     # Adjust metrics to get average loss and accuracy per batch
     test_loss = test_loss / len(dataloader)
-    return test_loss#, t_metrics
+    return test_loss, auprc
 
 
 def train(
@@ -280,6 +257,7 @@ def train(
     dir_save: str,
     validation_freq: int,
     restore_best_model: bool = False,
+    max_iter: int = None
 ) -> Dict[str, List]:
     """Trains and tests a PyTorch model.
 
@@ -328,7 +306,7 @@ def train(
         # "val_bal_acc": [],
         # "val_prec": [],
         # "val_recall": [],
-        # "val_f1": [],
+        "val_auprc": [],
     } 
 
     # Make sure model on target device
@@ -336,19 +314,21 @@ def train(
 
     # initialize the early_stopping object
     early_stopping = utils.EarlyStopping(
-        patience=50,
+        patience=5,
         verbose=True,
         path=dir_save,
         restore_best_model=restore_best_model,
+        objective='max' # as using f1
     )
 
     # Loop through training and testing steps for a number of epochs
+    n_iters = 0
     # stdout_fileno.write('Epochs \n')
     print("epochs", end="\n", flush=True)
     for epoch in tqdm(range(epochs)):  # tqdm(range(epochs))
         # stdout_fileno.write(f'Epoch {epoch} \n')
         # print(f'Epoch {epoch}', end="\n", flush=True)
-        results_train_tmp, results_val_tmp, early_stop = train_step(
+        results_train_tmp, results_val_tmp, early_stop, n_iters = train_step(
             model=model,
             train_dataloader=train_dataloader,
             test_dataloader=test_dataloader,
@@ -358,7 +338,9 @@ def train(
             validation_freq=validation_freq,
             epoch=epoch,
             early_stopping=early_stopping,
-            scheduler = scheduler
+            scheduler = scheduler,
+            n_iters=n_iters,
+            max_iter=max_iter
         )
 
         # # loads the last checkpoint with the best model if restore_best_model
@@ -376,4 +358,4 @@ def train(
             break
         
     # Return the filled results at the end of the epochs
-    return {**results_train, **results_val}
+    return {**results_train, **results_val}, n_iters

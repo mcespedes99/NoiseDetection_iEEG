@@ -7,15 +7,19 @@ import numpy as np
 from numpy.typing import ArrayLike
 import sklearn.metrics as skm
 import os
+from sklearn.metrics import precision_recall_curve
+from numpy import sqrt
+from numpy import argmax, nanargmax
 
 
-def classication_metrics(y_true: ArrayLike, y_pred_class: ArrayLike, test=False):
+def classication_metrics(y_true: ArrayLike, y_pred_class: ArrayLike, test=False, output_dict = False):
     """
     Args:
       y_true: Ground truth (correct) labels.
       y_pred: Array of probability estimates provided by the model.
 
     Missing: AUPRC https://towardsdatascience.com/imbalanced-data-stop-using-roc-auc-and-use-auprc-instead-46af4910a494
+    https://machinelearningmastery.com/tour-of-evaluation-metrics-for-imbalanced-classification/
     """
     # Compute accuracy
     acc = skm.accuracy_score(y_true, y_pred_class)
@@ -40,64 +44,33 @@ def classication_metrics(y_true: ArrayLike, y_pred_class: ArrayLike, test=False)
     macro_f1 = skm.f1_score(y_true, y_pred_class, average="macro")
     weighted_f1 = skm.f1_score(y_true, y_pred_class, average="weighted")
     # Assign to list
-    metrics_out = [
-        acc,
-        balanced_acc,
-        micro_prec,
-        macro_prec,
-        weighted_prec,
-        micro_recall,
-        macro_recall,
-        weighted_recall,
-        micro_f1,
-        macro_f1,
-        weighted_f1,
-    ]
-
+    metrics_out ={
+        "acc": acc,
+        "balanced_acc": balanced_acc,
+        "micro_prec": micro_prec,
+        "macro_prec": macro_prec,
+        "weighted_prec": weighted_prec,
+        "micro_recall": micro_recall,
+        "macro_recall": macro_recall,
+        "weighted_recall": weighted_recall,
+        "micro_f1": micro_f1,
+        "macro_f1": macro_f1,
+        "weighted_f1": weighted_f1,
+    }
     if test:
-        metrics_out.append(skm.classification_report(y_true, y_pred_class))
+        metrics_out['class_report'] = skm.classification_report(y_true, y_pred_class, output_dict=output_dict)
+        metrics_out['conf_matrix'] = skm.confusion_matrix(y_true, y_pred_class).tolist()
     return metrics_out
 
 
 def print_key_metrics(
-    acc,
-    balanced_acc,
-    micro_prec,
-    macro_prec,
-    weighted_prec,
-    micro_recall,
-    macro_recall,
-    weighted_recall,
-    micro_f1,
-    macro_f1,
-    weighted_f1,
-    class_report=None,
+    metrics
 ):
     print(
         "\n-------------------- Key Metrics --------------------", end="\n", flush=True
     )
-    print("\nAccuracy: {:.2f}".format(acc), end="\n", flush=True)
-    print("Balanced Accuracy: {:.2f}\n".format(balanced_acc), end="\n", flush=True)
-
-    print("Micro Precision: {:.2f}".format(micro_prec), end="\n", flush=True)
-    print("Micro Recall: {:.2f}".format(micro_recall), end="\n", flush=True)
-    print("Micro F1-score: {:.2f}\n".format(micro_f1), end="\n", flush=True)
-
-    print("Macro Precision: {:.2f}".format(macro_prec), end="\n", flush=True)
-    print("Macro Recall: {:.2f}".format(macro_recall), end="\n", flush=True)
-    print("Macro F1-score: {:.2f}\n".format(macro_f1), end="\n", flush=True)
-
-    print("Weighted Precision: {:.2f}".format(weighted_prec), end="\n", flush=True)
-    print("Weighted Recall: {:.2f}".format(weighted_recall), end="\n", flush=True)
-    print("Weighted F1-score: {:.2f}".format(weighted_f1), end="\n", flush=True)
-
-    if class_report:
-        print(
-            "\n--------------- Classification Report ---------------\n",
-            end="\n",
-            flush=True,
-        )
-        print(class_report, end="\n", flush=True)
+    for metric in metrics:
+        print(f"\n{metric}: {metrics[metric]}", end="\n", flush=True)
 
 def classication_metrics_binary(y_true: ArrayLike, y_pred_class: ArrayLike):
     """
@@ -118,13 +91,20 @@ def classication_metrics_binary(y_true: ArrayLike, y_pred_class: ArrayLike):
     # F1
     f1 = skm.f1_score(y_true, y_pred_class, average="binary", zero_division=0.0)
     # Assign to list
-    metrics_out = [
-        acc,
-        balanced_acc,
-        prec,
-        recall,
-        f1
-    ]
+    sensitivity = skm.recall_score(y_true , y_pred_class)
+    specificity = skm.recall_score(np.logical_not(y_true) , np.logical_not(y_pred_class))
+    gmeans = sqrt(sensitivity * specificity)
+
+    metrics_out ={
+        "acc": acc,
+        "balanced_acc": balanced_acc,
+        "precision": prec,
+        "recall": recall,
+        "f1": f1,
+        "specificity": specificity,
+        "gmeans": gmeans,
+    }
+
     return metrics_out
 
 
@@ -253,6 +233,7 @@ class EarlyStopping:
         path="",
         trace_func=print,
         restore_best_model: bool = False,
+        objective='max'
     ):
         """
         Args:
@@ -272,24 +253,28 @@ class EarlyStopping:
         self.counter = 0
         self.best_score = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
+        self.metric_min = np.Inf
         self.delta = delta
         self.path = path
         self.trace_func = trace_func
         self.restore_best_model = restore_best_model
+        assert objective in ['min', 'max']
+        self.objective = objective
 
-    def __call__(self, val_loss, model):
-        score = -val_loss
+    def __call__(self, metric, model):
+        score = metric
+        if self.objective == 'min':
+            score = -score
 
         if self.best_score is None:
             self.best_score = score
             self.save_checkpoint(
-                val_loss, model, os.path.join(self.path, "checkpoint.pt")
+                metric, model, os.path.join(self.path, "checkpoint.pt")
             )
             # If not restore_best_model, both the checkpoint (latest model) and the best model will be saved
             if not self.restore_best_model:
                 self.save_checkpoint(
-                    val_loss, model, os.path.join(self.path, "best_model.pt")
+                    metric, model, os.path.join(self.path, "best_model.pt")
                 )
         elif score < self.best_score + self.delta:
             self.counter += 1
@@ -300,28 +285,28 @@ class EarlyStopping:
                 self.early_stop = True
             elif not self.restore_best_model:
                 self.save_checkpoint(
-                    val_loss, model, os.path.join(self.path, "checkpoint.pt")
+                    metric, model, os.path.join(self.path, "checkpoint.pt")
                 )
         else:
             self.best_score = score
             self.save_checkpoint(
-                val_loss, model, os.path.join(self.path, "checkpoint.pt")
+                metric, model, os.path.join(self.path, "checkpoint.pt")
             )
             self.counter = 0
             # If not restore_best_model, both the checkpoint (latest model) and the best model will be saved
             if not self.restore_best_model:
                 self.save_checkpoint(
-                    val_loss, model, os.path.join(self.path, "best_model.pt")
+                    metric, model, os.path.join(self.path, "best_model.pt")
                 )
 
-    def save_checkpoint(self, val_loss, model, model_name):
-        """Saves model when validation loss decrease."""
+    def save_checkpoint(self, metric, model, model_name):
+        """Saves model when validation metric decrease/increase."""
         if self.verbose:
             self.trace_func(
-                f"Validation loss changed from ({self.val_loss_min:.6f} --> {val_loss:.6f}).  Saving model ..."
+                f"Metric changed from ({self.metric_min:.6f} --> {metric:.6f}).  Saving model ..."
             )
         torch.save(model.state_dict(), os.path.join(self.path, model_name))
-        self.val_loss_min = val_loss
+        self.metric_min = metric
 
 
 def save_model(model: torch.nn.Module, target_dir: str, model_name: str):
@@ -351,3 +336,48 @@ def save_model(model: torch.nn.Module, target_dir: str, model_name: str):
     # Save the model state_dict()
     print(f"[INFO] Saving model to: {model_save_path}")
     torch.save(obj=model.state_dict(), f=model_save_path)
+
+
+def eval_model(model_0, val_dataloader, binary=False):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Put model in eval mode
+    model_0.eval()
+    # Initiate values
+    y_total, y_pred_total = np.array([]), np.array([])
+
+    # Turn on inference context manager
+    with torch.inference_mode():
+        # Loop through DataLoader batches
+        for batch, (X, y) in enumerate(val_dataloader):
+            # Send data to target deviceval_metrics
+            X, y = X.to(device), y.to(device)
+
+            # 1. Forward pass
+            test_pred_logits = model_0(X)
+            
+            # Apply softmax
+            if binary:
+                y_pred_prob = torch.sigmoid(test_pred_logits.squeeze())
+                y_pred_total = np.concatenate(
+                    [y_pred_total, y_pred_prob.detach().numpy()]
+                )
+            else:
+                y_pred_prob = torch.softmax(test_pred_logits, dim=1)
+                y_pred_total = np.concatenate(
+                    [y_pred_total, np.argmax(y_pred_prob.detach().numpy(), axis=1)]
+                )
+
+            # Save results
+            y_total = np.concatenate([y_total, y.detach().numpy()])
+                
+    if binary:
+        results_val = classication_metrics_binary(y_total, y_pred_total)
+
+    else:
+        results_val = classication_metrics(y_total, y_pred_total, test=True, output_dict=True)
+    print(f"\nVal metrics:", end="\n", flush=True)
+    print_key_metrics(
+        results_val
+    )
+
+    return results_val

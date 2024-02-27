@@ -1,0 +1,25 @@
+import os
+import numpy as np
+
+configfile: "/scratch/mcesped/code/NoiseDetection_iEEG/kfold_validation/config.yaml"
+
+
+rule all:
+    input:
+         expand(os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/", "fold_{kfold}/results_val.txt"), kfold=np.arange(config['cv_fold']*config['repeats']).tolist())
+
+
+rule cv_dfs:
+    input: 
+        df_cv = config["df_cv"]
+    log:
+        os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/logs/cv.log")
+    output:
+        dfs_train = expand(os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/", "fold_{kfold}/df_train.csv"), kfold=np.arange(config['cv_fold']*config['repeats']).tolist()),
+        dfs_val = expand(os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/", "fold_{kfold}/df_val.csv"), kfold=np.arange(config['cv_fold']*config['repeats']).tolist())
+    script: os.path.join(workflow.basedir,'scripts/cv_split.py')
+
+if not config['binary']:
+    include: "rules/multiclass.smk"
+else:
+    include: "rules/binary.smk"

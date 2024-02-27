@@ -2,7 +2,7 @@ import os
 import argparse
 
 
-def main(model_name: str, dir_save: str, processes: int, features: str, srate: int):
+def main(model_name: str, dir_save: str, processes: int, features: str, srate: int, binary_cat: str, df_val_path:str, df_train_path:str):
     print("start", end="\n", flush=True)
     print("torch", end="\n", flush=True)
     import torch
@@ -18,6 +18,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
 
     print("finish import", end="\n", flush=True)
     assert features in ['CWT','Hilbert', 'Combined'] 
+    assert binary_cat in ['Pathology', 'Noise']
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     os.environ["MKL_NUM_THREADS"] = "1"
@@ -34,7 +35,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         'Hilbert': 1
     }
     input_size = input_size_map[features] # Number of images per example
-    validation_freq = 20
+    validation_freq = 100
     input_length_map = {
         2048: 6094,
         1024: 3046
@@ -46,15 +47,14 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         f"/home/mcesped/scratch/Datasets/{srate}Hz/Dataset_Mayo_Combined.zip",
     ]
     # df_path = '/scratch/mcesped/Datasets/segments_mayo_fnusa_curated_big_version.csv'
-    df_path = '/scratch/mcesped/Datasets/segments_mayo_fnusa_curated_short_version.csv'
-    df_train_path = '/scratch/mcesped/Datasets/Noise_detection/df_train_curated.csv'
-    df_val_path = '/scratch/mcesped/Datasets/Noise_detection/df_val_curated.csv'
+    # df_train_path = f'/scratch/mcesped/Datasets/{binary_cat}_detection/df_train_curated.csv'
+    # df_val_path = f'/scratch/mcesped/Datasets/{binary_cat}_detection/df_val_curated.csv'
 
     train_transform = transforms.Compose(
         [
             #transforms.Resize((30, 100), antialias=True),
             transforms.RandomHorizontalFlip(p=0.3),
-            # utils.RandomMask(p=0.4, f_max_size= 1, t_max_size = int(0.2*input_length), n_masks_f=2, n_masks_t=3),
+            utils.RandomMask(p=0.3, f_max_size= 1, t_max_size = int(0.2*input_length), n_masks_f=1, n_masks_t=2),
         ]
     )
     val_transform = (
@@ -81,6 +81,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         num_workers=processes,
         dataset_class="SpectrogramDir",
         binary=True,
+        binary_cat=binary_cat,
         previosly_uncompressed = False
     )
     # data_setup.create_dataloaders_manual(
@@ -105,6 +106,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
 
     # Set number of epochs
     NUM_EPOCHS = 100
+    max_iter = None
 
     # Create model
     n_classes = 1
@@ -119,25 +121,25 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     }
     model_0 = models[model_name].to(device)
     print(f"Model: {model_0}")
-    # Load model if it was trained before
-    if os.path.exists(os.path.join(dir_save, "best_model.pt")):
-        # load the last checkpoint with the best model
-        print(
-            f"Previous trained model found in {os.path.join(dir_save, 'best_model.pt')}. Loading... \n",
-            flush=True,
-        )
-        model_0.load_state_dict(torch.load(os.path.join(dir_save, "best_model.pt")))
-    elif os.path.exists(os.path.join(dir_save, "checkpoint.pt")):
-        # load the last checkpoint with the best model
-        print(
-            f"Previous trained model found in {os.path.join(dir_save, 'checkpoint.pt')}. Loading... \n",
-            flush=True,
-        )
-        model_0.load_state_dict(torch.load(os.path.join(dir_save, "checkpoint.pt")))
-    else:
-        print(
-            f"No previous model found in {dir_save}.",
-        )
+    # Load model if it was trained before (turned off for now)
+    # if os.path.exists(os.path.join(dir_save, "best_model.pt")):
+    #     # load the last checkpoint with the best model
+    #     print(
+    #         f"Previous trained model found in {os.path.join(dir_save, 'best_model.pt')}. Loading... \n",
+    #         flush=True,
+    #     )
+    #     model_0.load_state_dict(torch.load(os.path.join(dir_save, "best_model.pt")))
+    # elif os.path.exists(os.path.join(dir_save, "checkpoint.pt")):
+    #     # load the last checkpoint with the best model
+    #     print(
+    #         f"Previous trained model found in {os.path.join(dir_save, 'checkpoint.pt')}. Loading... \n",
+    #         flush=True,
+    #     )
+    #     model_0.load_state_dict(torch.load(os.path.join(dir_save, "checkpoint.pt")))
+    # else:
+    #     print(
+    #         f"No previous model found in {dir_save}.",
+    #     )
 
     # Setup loss function and optimizer
     loss_fn = nn.BCEWithLogitsLoss() #weight=cls_weights
@@ -150,7 +152,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     start_time = timer()
 
     # Train model_0
-    model_0_results = train(
+    model_0_results, n_iters = train(
         model=model_0,
         train_dataloader=train_dataloader,
         test_dataloader=val_dataloader,
@@ -162,12 +164,24 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         dir_save=dir_save,
         validation_freq=validation_freq,
         restore_best_model=False,
+        max_iter=max_iter
     )
 
     # Save results
-    path_results = os.path.join(dir_save, "results.txt")
+    path_results = os.path.join(dir_save, "loss.txt")
     with open(path_results, "w") as write_file:
         json.dump(model_0_results, write_file)
+
+    # Restore best model
+    model_0.load_state_dict(torch.load(os.path.join(dir_save, "best_model.pt")))
+    # Run after training evaluation
+    results_val = utils.eval_model(model_0, val_dataloader, binary=True)
+    results_val['n_iters'] = n_iters
+    # results_val['val_freq'] = validation_freq#int(len(train_dataloader)*validation_freq)
+    path_results = os.path.join(dir_save, "results_val.txt")
+    print(results_val, flush=True)
+    with open(path_results, "w") as write_file:
+        json.dump(results_val, write_file)
 
     # End the timer and stdout_fileno.write out how long it took
     end_time = timer()
@@ -199,6 +213,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "-s", "--srate", type=int, required=True
     )
+    parser.add_argument(
+        "-cat", "--category", type=str, required=True
+    )
+    parser.add_argument(
+        "-df_val", "--df_val", type=str, required=True
+    ) 
+    parser.add_argument(
+        "-df_train", "--df_train", type=str, required=True
+    ) 
     args = parser.parse_args()
     print("test", end="\n", flush=True)
-    main(args.model, args.path, int(args.cores), args.features, int(args.srate))
+    main(args.model, args.path, int(args.cores), args.features, int(args.srate), args.category, args.df_val, args.df_train)

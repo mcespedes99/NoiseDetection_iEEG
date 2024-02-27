@@ -828,10 +828,10 @@ class CNN_Long_Data2(nn.Module):
         self.fc1 = nn.Sequential(
             nn.Flatten(),
             nn.Dropout(0.5),
-            nn.Linear(16*output_length, 1000),
+            nn.Linear(16*output_length, 256),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1000, n_classes),
+            nn.Linear(256, n_classes),
         )
         # self.fc2 = nn.Sequential(
         #     nn.Dropout(0.5),
@@ -851,8 +851,8 @@ class CNN_Long_Data4(nn.Module):
     def __init__(self, n_classes: int, input_size: int, input_length: int):
         super(CNN_Long_Data4, self).__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(input_size, 16, kernel_size=3, padding=0, stride=1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(input_size, 8, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(8),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
@@ -860,20 +860,24 @@ class CNN_Long_Data4(nn.Module):
         output_length= int(((input_length-1*(3-1)-1)+1)/2)
 
         self.conv2 = nn.Sequential(
-            nn.Conv2d(16, 16, kernel_size=3, padding='same'),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(8, 8, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(8),
             nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=(1,2),
+            #              stride=(1,2)),
         )
 
         self.conv3 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding='same'),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(8, 8, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(8),
             nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=(1,2),
+            #              stride=(1,2)),
         )
-        
+
         self.conv4 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, padding=0, stride=1),
-            nn.BatchNorm2d(64),
+            nn.Conv2d(16, 16, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(16),
             nn.ReLU(),
             nn.AvgPool2d(kernel_size=(1,2),
                          stride=(1,2)),
@@ -883,13 +887,13 @@ class CNN_Long_Data4(nn.Module):
         self.fc1 = nn.Sequential(
             nn.Flatten(),
             nn.Dropout(0.5),
-            nn.Linear(64*output_length, 512),
+            nn.Linear(16*output_length, 256),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(512, 256),
+            nn.Linear(256, 128),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(256, n_classes),
+            nn.Linear(128, n_classes),
         )
         # self.fc2 = nn.Sequential(
         #     nn.Dropout(0.5),
@@ -901,12 +905,9 @@ class CNN_Long_Data4(nn.Module):
         x1 = self.conv1(x)
         # print(x1.shape)
         x2 = self.conv2(x1)
-        x3 = self.conv2(x2)
+        x3 = self.conv3(x2)
         x4 = torch.cat([x1, x3], dim=1)
-        x5 = self.conv3(x4)
-        x6 = self.conv3(x5)
-        x = torch.cat([x4, x6], dim=1)
-        x = self.conv4(x)
+        x = self.conv4(x4)
         # print(x.shape)
         # x = self.relu(self.fc1(x))
         x = self.fc1(x.squeeze(dim=1))
@@ -982,8 +983,8 @@ class CNN_Long_Data5(nn.Module):
     def __init__(self, n_classes: int, input_size: int, input_length: int):
         super(CNN_Long_Data5, self).__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(input_size, 16, kernel_size=3, padding=0, stride=1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(input_size, 32, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
@@ -991,16 +992,24 @@ class CNN_Long_Data5(nn.Module):
         output_length= int(((input_length-1*(3-1)-1)+1)/2)
 
         self.conv2 = nn.Sequential(
-            nn.Conv2d(16, 16, kernel_size=3, padding='same'),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(32, 32, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             # nn.MaxPool2d(kernel_size=(1,2),
             #              stride=(1,2)),
         )
 
         self.conv3 = nn.Sequential(
-            nn.Conv2d(32, 32, kernel_size=3, padding=0, stride=1),
+            nn.Conv2d(32, 32, kernel_size=3, padding='same'),
             nn.BatchNorm2d(32),
+            nn.ReLU(),
+            # nn.MaxPool2d(kernel_size=(1,2),
+            #              stride=(1,2)),
+        )
+
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.AvgPool2d(kernel_size=(1,2),
                          stride=(1,2)),
@@ -1010,13 +1019,13 @@ class CNN_Long_Data5(nn.Module):
         self.fc1 = nn.Sequential(
             nn.Flatten(),
             nn.Dropout(0.5),
-            nn.Linear(32*output_length, 512),
+            nn.Linear(64*output_length, 256),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(512, 256),
+            nn.Linear(256, 128),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(256, n_classes),
+            nn.Linear(128, n_classes),
         )
         # self.fc2 = nn.Sequential(
         #     nn.Dropout(0.5),
@@ -1028,62 +1037,17 @@ class CNN_Long_Data5(nn.Module):
         x1 = self.conv1(x)
         # print(x1.shape)
         x2 = self.conv2(x1)
-        x3 = self.conv2(x2)
+        x3 = self.conv3(x2)
         x4 = torch.cat([x1, x3], dim=1)
-        x = self.conv3(x4)
+        x = self.conv4(x4)
         # print(x.shape)
         # x = self.relu(self.fc1(x))
         x = self.fc1(x.squeeze(dim=1))
         return x
 
-class CNN_Long_Data6(nn.Module): # replication of previous paper network
+class CNN_RNN_Long_Data1(nn.Module):
     def __init__(self, n_classes: int, input_size: int, input_length: int):
-        super(CNN_Long_Data6, self).__init__()
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(input_size, 50, kernel_size=(5,int(input_length*0.0033)), padding=0, stride=(1,4)),
-            nn.BatchNorm2d(50),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(1,2),
-                         stride=(1,2)),
-        )
-        output_length= int(((input_length-1*(int(input_length*0.0033)-1)-1)/4 + 1)/2)
-
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(50, 50, kernel_size=(1,int(input_length*0.01)), padding=0, stride=(1,1)),
-            nn.BatchNorm2d(50),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(1,2),
-                         stride=(1,2)),
-        )
-        output_length = int(((output_length-1*(int(input_length*0.01)-1)/1-1)+1)/2)
-
-        self.fc1 = nn.Sequential(
-            nn.Flatten(),
-            nn.Dropout(0.5),
-            nn.Linear(50*output_length, 150),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(150, 25),
-            nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(25, n_classes),
-        )
-        # self.fc2 = nn.Sequential(
-        #     nn.Dropout(0.5),
-        #     nn.Linear(128, n_classes)
-        # )
-        self.relu = nn.ReLU()
-    
-    def forward(self, x):
-        x = self.conv1(x)
-        # print(x1.shape)
-        x = self.conv2(x)
-        x = self.fc1(x)#.squeeze(dim=1))
-        return x
-
-class CNN_RNN_Long_Data(nn.Module):
-    def __init__(self, n_classes: int, input_size: int, input_length: int):
-        super(CNN_RNN_Long_Data, self).__init__()
+        super(CNN_RNN_Long_Data1, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(input_size, 16, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(16),
@@ -1128,6 +1092,136 @@ class CNN_RNN_Long_Data(nn.Module):
         self.classifier = nn.Sequential(
             nn.Dropout(0.5),
             nn.Linear(128, n_classes),
+        )
+
+    def forward(self, x):
+        x1 = self.conv1(x)
+        # print(x1.shape)
+        x2 = self.conv2(x1)
+        x3 = self.conv3(x2)
+        x4 = torch.cat([x1, x3], dim=1)
+        x5 = self.conv4(x4)
+        x6 = self.conv5(x5)
+        x = torch.cat([x4, x6], dim=1)
+        x = self.conv6(x)
+        x = x.squeeze(dim=2).permute(0,2,1) # permuting from N, f, t to N, t, f
+        x,_ = self.gru(x)
+        # print(x.shape)
+        x = self.classifier(x)[:,-1,:]
+        return x
+
+class CNN_RNN_Long_Data2(nn.Module):
+    def __init__(self, n_classes: int, input_size: int, input_length: int):
+        super(CNN_RNN_Long_Data2, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(input_size, 8, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(8),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=(1,2),
+                         stride=(1,2)),
+        )
+        output_length= int(((input_length-1*(3-1)-1)+1)/2)
+
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(8, 8, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(8),
+            nn.ReLU(),
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(8, 8, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(8),
+            nn.ReLU(),
+        )
+
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(16, 16, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+        )
+        self.conv5 = nn.Sequential(
+            nn.Conv2d(16, 16, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+        )
+        
+        self.conv6 = nn.Sequential(
+            nn.Conv2d(32, 32, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.AvgPool2d(kernel_size=(1,2),
+                         stride=(1,2)),
+        )
+        output_length = int(((output_length-1*(3-1)-1)+1)/2)
+
+        self.gru =  nn.LSTM(input_size=32,hidden_size=64,num_layers=3,batch_first=True,bidirectional=False, dropout=0.5)
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(64, n_classes),
+        )
+
+    def forward(self, x):
+        x1 = self.conv1(x)
+        # print(x1.shape)
+        x2 = self.conv2(x1)
+        x3 = self.conv3(x2)
+        x4 = torch.cat([x1, x3], dim=1)
+        x5 = self.conv4(x4)
+        x6 = self.conv5(x5)
+        x = torch.cat([x4, x6], dim=1)
+        x = self.conv6(x)
+        x = x.squeeze(dim=2).permute(0,2,1) # permuting from N, f, t to N, t, f
+        x,_ = self.gru(x)
+        # print(x.shape)
+        x = self.classifier(x)[:,-1,:]
+        return x
+
+class CNN_RNN_Long_Data3(nn.Module):
+    def __init__(self, n_classes: int, input_size: int, input_length: int):
+        super(CNN_RNN_Long_Data3, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(input_size, 32, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=(1,2),
+                         stride=(1,2)),
+        )
+        output_length= int(((input_length-1*(3-1)-1)+1)/2)
+
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(32, 32, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+        )
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(32, 32, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+        )
+
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+        )
+        self.conv5 = nn.Sequential(
+            nn.Conv2d(64, 64, kernel_size=3, padding='same'),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+        )
+        
+        self.conv6 = nn.Sequential(
+            nn.Conv2d(128, 128, kernel_size=3, padding=0, stride=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.AvgPool2d(kernel_size=(1,2),
+                         stride=(1,2)),
+        )
+        output_length = int(((output_length-1*(3-1)-1)+1)/2)
+
+        self.gru =  nn.LSTM(input_size=128,hidden_size=256,num_layers=3,batch_first=True,bidirectional=False, dropout=0.5)
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(256, n_classes),
         )
 
     def forward(self, x):

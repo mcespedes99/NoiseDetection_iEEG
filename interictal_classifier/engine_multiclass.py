@@ -32,7 +32,9 @@ def train_step(
     validation_freq: int,
     epoch: int,
     early_stopping,
-    scheduler
+    scheduler,
+    n_iters,
+    max_iter: int = None
 ) -> Tuple[float, float]:
     """Trains a PyTorch model for a single epoch.
 
@@ -72,7 +74,7 @@ def train_step(
         # "val_bal_acc": [],
         # "val_prec": [],
         # "val_recall": [],
-        # "val_f1": [],
+        "val_f1": [],
     } 
 
     # Setup train loss and train accuracy values
@@ -84,12 +86,12 @@ def train_step(
     print(train_dataloader, end="\n", flush=True)
     # Counter to average when not sufficient samples to calculate auc
     acum_batches = 1
-    y_total = np.array([])
-    y_pred_total = np.array([])
-
     n_batches = 0
+    #validation_freq = int(len(train_dataloader)*validation_freq)
+    print(f'Using a validation frequency of {validation_freq}\n', flush=True)
     # Loop through data loader data batches
     for batch, (X, y) in enumerate(train_dataloader):
+        n_iters += 1
         n_batches += 1
         # Put model in train mode
         model.train()
@@ -100,13 +102,13 @@ def train_step(
         # stdout_fileno.write('1 \n')
         # print('1', end="\n", flush=True)
         # 1. Forward pass
-        y_pred = model(X).squeeze()
+        y_pred = model(X) #.squeeze()
         # stdout_fileno.write('2 \n')
         # print('2', end="\n", flush=True)
         # 2. Calculate  and accumulate loss
         loss = loss_fn(y_pred, y)
         loss_item = loss.item()
-        print(f'\n Training loss for batch {batch}: {loss_item:.3f}\n', end="\n", flush=True)
+        # print(f'\n Training loss for batch {batch}: {loss_item:.3f}\n', end="\n", flush=True)
         train_loss += loss_item
 
         # 3. Optimizer zero grad
@@ -120,7 +122,7 @@ def train_step(
         # stdout_fileno.write('Pred \n')
         # print('Pred', end="\n", flush=True)
         # Calculate and accumulate accuracy metric across all batches
-        # y_pred_prob = torch.sigmoid(y_pred)
+        # y_pred_prob = torch.softmax(y_pred, dim=1)
         # Add to total
         # Save results
         # y_total = np.concatenate([y_total, y.detach().numpy()])
@@ -145,7 +147,7 @@ def train_step(
         acum_batches += 1
         
         # Validate
-        if batch % validation_freq == 0:
+        if batch % validation_freq == 0 and n_iters != 1: # Not measuring the first iter
             # Loss
             train_loss = train_loss/n_batches
             # Merge them 
@@ -166,34 +168,38 @@ def train_step(
 
 
             # Validation
-            val_loss, val_metrics = test_step(
-                model=model, dataloader=test_dataloader, loss_fn=loss_fn, device=device
-            )
-            # Print Loss
-            print(f'\n Validation loss: {val_loss:.3f}\n', end="\n", flush=True)
+            if test_dataloader is not None:
+                val_loss, val_metrics = test_step(
+                    model=model, dataloader=test_dataloader, loss_fn=loss_fn, device=device
+                )
+                # Print Loss
+                print(f'\n Validation loss: {val_loss:.3f}\n', end="\n", flush=True)
 
-            # Print metrics
-            print(f"\nVal metrics batch {batch}, epoch {epoch}", end="\n", flush=True)
-            utils.print_key_metrics(
-                *val_metrics
-            )
-            # Merge them
-            val_metrics =  [val_loss]#+val_metrics
-            results_val = save_results(results_val, val_metrics)
-
+                # Print metrics
+                print(f"\nVal metrics batch {batch}, epoch {epoch}", end="\n", flush=True)
+                utils.print_key_metrics(
+                    val_metrics
+                )
+                # Merge them
+                macro_f1 = val_metrics['macro_f1']
+                val_metrics =  [val_loss, macro_f1]#+val_metrics
+                results_val = save_results(results_val, val_metrics)
+                # Checkpoint: earlystop
+                early_stopping(macro_f1, model)
+            
+            # Training can stop for 2 reasons: early stop or max_iter reached
+            if (max_iter is not None) and (n_iters >= max_iter):
+                early_stopping.early_stop = True
+            if early_stopping.early_stop:
+                print("Early stopping")
+                break
 
             # Change scheduler
             scheduler.step()
             print(f'\n Learning rate: {optimizer.param_groups[0]["lr"]}\n', end="\n", flush=True)
 
-            # Checkpoint: earlystop
-            early_stopping(val_loss, model)
-
-            if early_stopping.early_stop:
-                print("Early stopping")
-                break
     # print(t_metrics)
-    return results_train, results_val, early_stopping.early_stop
+    return results_train, results_val, early_stopping.early_stop, n_iters
 
 
 def test_step(
@@ -236,14 +242,16 @@ def test_step(
             X, y = X.to(device), y.to(device)
 
             # 1. Forward pass
-            test_pred_logits = model(X).squeeze()
+            test_pred_logits = model(X) #.squeeze()
+            # print(X.shape, y.shape, test_pred_logits.shape)
 
             # 2. Calculate and accumulate loss
-            loss = loss_fn(test_pred_logits, y)
-            test_loss += loss.item()
+            if len(y)>0:
+                loss = loss_fn(test_pred_logits, y)
+                test_loss += loss.item()
 
             # Apply softmax
-            y_pred_prob = torch.sigmoid(test_pred_logits)
+            y_pred_prob = torch.softmax(test_pred_logits, dim=1)
 
             # Save results
             y_total = np.concatenate([y_total, y.detach().numpy()])
@@ -270,6 +278,7 @@ def train(
     dir_save: str,
     validation_freq: int,
     restore_best_model: bool = False,
+    max_iter: int = None
 ) -> Dict[str, List]:
     """Trains and tests a PyTorch model.
 
@@ -318,7 +327,7 @@ def train(
         # "val_bal_acc": [],
         # "val_prec": [],
         # "val_recall": [],
-        # "val_f1": [],
+        "val_f1": [],
     } 
 
     # Make sure model on target device
@@ -326,19 +335,21 @@ def train(
 
     # initialize the early_stopping object
     early_stopping = utils.EarlyStopping(
-        patience=1,
+        patience=3,
         verbose=True,
         path=dir_save,
         restore_best_model=restore_best_model,
+        objective='max'
     )
 
     # Loop through training and testing steps for a number of epochs
+    n_iters = 0
     # stdout_fileno.write('Epochs \n')
     print("epochs", end="\n", flush=True)
     for epoch in tqdm(range(epochs)):  # tqdm(range(epochs))
         # stdout_fileno.write(f'Epoch {epoch} \n')
         # print(f'Epoch {epoch}', end="\n", flush=True)
-        results_train_tmp, results_val_tmp, early_stop = train_step(
+        results_train_tmp, results_val_tmp, early_stop, n_iters = train_step(
             model=model,
             train_dataloader=train_dataloader,
             test_dataloader=test_dataloader,
@@ -348,7 +359,9 @@ def train(
             validation_freq=validation_freq,
             epoch=epoch,
             early_stopping=early_stopping,
-            scheduler = scheduler
+            scheduler = scheduler,
+            n_iters=n_iters,
+            max_iter=max_iter
         )
 
         # # loads the last checkpoint with the best model if restore_best_model
@@ -366,4 +379,4 @@ def train(
             break
         
     # Return the filled results at the end of the epochs
-    return {**results_train, **results_val}
+    return {**results_train, **results_val}, n_iters

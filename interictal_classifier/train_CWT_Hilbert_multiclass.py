@@ -2,7 +2,7 @@ import os
 import argparse
 
 
-def main(model_name: str, dir_save: str, processes: int, features: str, srate: int):
+def main(model_name: str, dir_save: str, processes: int, features: str, srate: int, df_val_path:str, df_train_path:str):
     print("start", end="\n", flush=True)
     print("torch", end="\n", flush=True)
     import torch
@@ -34,11 +34,14 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         'Hilbert': 1
     }
     input_size = input_size_map[features] # Number of images per example
-    validation_freq = 500
+    validation_freq = 100 # as a percentage of the train size
     input_length_map = {
         2048: 6094,
         1024: 3046
     }
+    # Set number of epochs
+    NUM_EPOCHS = 100
+    max_iter = None
     input_length =  input_length_map[srate]
     # Zip files and transforms
     zip_files = [
@@ -46,16 +49,18 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         f"/home/mcesped/scratch/Datasets/{srate}Hz/Dataset_Mayo_Combined.zip",
     ]
     # df_path = '/scratch/mcesped/Datasets/segments_mayo_fnusa_curated_big_version.csv'
-    df_train_path = '/scratch/mcesped/Datasets/Multiclass/df_train_full.csv'
-    df_val_path = '/scratch/mcesped/Datasets/Multiclass/df_val_full.csv'
+    # df_train_path = '/scratch/mcesped/Datasets/Multiclass/df_train_curated.csv'
+    # df_val_path = '/scratch/mcesped/Datasets/Multiclass/df_val_curated.csv'
+    # df_train_path = '/scratch/mcesped/Datasets/Multiclass/df_train_full.csv'
+    # df_val_path = '/scratch/mcesped/Datasets/Multiclass/df_val_full.csv'
 
-    train_transform = None #transforms.Compose(
-        #[
+    train_transform = transforms.Compose(
+        [
             #transforms.Resize((30, 100), antialias=True),
-         #   transforms.RandomHorizontalFlip(p=0.3),
-            # utils.RandomMask(p=0.4, f_max_size= 1, t_max_size = int(0.2*input_length), n_masks_f=2, n_masks_t=3),
-        #]
-    #)
+            transforms.RandomHorizontalFlip(p=0.3),
+            utils.RandomMask(p=0.3, f_max_size= 1, t_max_size = int(0.2*input_length), n_masks_f=1, n_masks_t=2),
+        ]
+    )
     val_transform = (
         None  # transforms.Compose([transforms.Resize((30, 100), antialias=True)])
     )
@@ -75,7 +80,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         df_val_path,
         train_transform,
         val_transform,
-        batch_size=200,
+        batch_size=32,
         features=features,
         num_workers=processes,
         dataset_class="SpectrogramDir",
@@ -102,8 +107,6 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
 
-    # Set number of epochs
-    NUM_EPOCHS = 100
 
     # Create model
     n_classes = 3
@@ -115,7 +118,9 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         "CNN_Long_Data5": model.CNN_Long_Data5(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data6": model.CNN_Long_Data6(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Resnet": model.custom_resnet34(n_classes = n_classes, input_size=input_size),
-        "CNN_RNN_Long_Data": model.CNN_RNN_Long_Data(n_classes=n_classes, input_size=input_size, input_length=input_length),
+        "CNN_RNN_Long_Data1": model.CNN_RNN_Long_Data1(n_classes=n_classes, input_size=input_size, input_length=input_length),
+        "CNN_RNN_Long_Data2": model.CNN_RNN_Long_Data2(n_classes=n_classes, input_size=input_size, input_length=input_length),
+        "CNN_RNN_Long_Data3": model.CNN_RNN_Long_Data3(n_classes=n_classes, input_size=input_size, input_length=input_length),
     }
     model_0 = models[model_name].to(device)
     print(f"Model: {model_0}")
@@ -141,9 +146,10 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
 
     # Setup loss function and optimizer
     loss_fn = nn.CrossEntropyLoss() #weight=cls_weights
-    # optimizer = torch.optim.Adam(params=model_0.parameters(), lr=0.001)
-    optimizer = torch.optim.SGD(params=model_0.parameters(), lr=0.01, momentum=0.9, weight_decay=0.001)
-    scheduler = lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    optimizer = torch.optim.Adam(params=model_0.parameters(), lr=0.001)
+    # optimizer = torch.optim.SGD(params=model_0.parameters(), lr=0.01, momentum=0.9, weight_decay=0.001)
+    scheduler = lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.1, total_iters=15)
+    #lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
     # Start the timer
     from timeit import default_timer as timer
@@ -151,7 +157,7 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     start_time = timer()
 
     # Train model_0
-    model_0_results = train(
+    model_0_results, n_iters = train(
         model=model_0,
         train_dataloader=train_dataloader,
         test_dataloader=val_dataloader,
@@ -163,12 +169,22 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         dir_save=dir_save,
         validation_freq=validation_freq,
         restore_best_model=False,
+        max_iter=max_iter
     )
 
     # Save results
-    path_results = os.path.join(dir_save, "results.txt")
+    path_results = os.path.join(dir_save, "loss.txt")
     with open(path_results, "w") as write_file:
         json.dump(model_0_results, write_file)
+
+    # Restore best model
+    model_0.load_state_dict(torch.load(os.path.join(dir_save, "best_model.pt")))
+    # Run after training evaluation
+    results_val = utils.eval_model(model_0, val_dataloader)
+    results_val['n_iters'] = n_iters
+    path_results = os.path.join(dir_save, "results_val.txt")
+    with open(path_results, "w") as write_file:
+        json.dump(results_val, write_file)
 
     # End the timer and stdout_fileno.write out how long it took
     end_time = timer()
@@ -200,6 +216,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "-s", "--srate", type=int, required=True
     )
+    parser.add_argument(
+        "-df_val", "--df_val", type=str, required=True
+    ) 
+    parser.add_argument(
+        "-df_train", "--df_train", type=str, required=True
+    ) 
     args = parser.parse_args()
     print("test", end="\n", flush=True)
-    main(args.model, args.path, int(args.cores), args.features, int(args.srate))
+    main(args.model, args.path, int(args.cores), args.features, int(args.srate), args.df_val, args.df_train)
