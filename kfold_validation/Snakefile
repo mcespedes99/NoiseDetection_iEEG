@@ -14,6 +14,8 @@ rule cv_dfs:
         df_cv = config["df_cv"]
     log:
         os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/logs/cv.log")
+    benchmark:
+       os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/logs/cv.txt")
     output:
         dfs_train = expand(os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/", "fold_{kfold}/df_train.csv"), kfold=np.arange(config['cv_fold']*config['repeats']).tolist()),
         dfs_val = expand(os.path.join(config['output_dir'], f"{config['srate']}Hz/trial_{config['trial']}/", "fold_{kfold}/df_val.csv"), kfold=np.arange(config['cv_fold']*config['repeats']).tolist())

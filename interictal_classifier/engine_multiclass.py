@@ -119,31 +119,6 @@ def train_step(
 
         # 5. Optimizer step
         optimizer.step()
-        # stdout_fileno.write('Pred \n')
-        # print('Pred', end="\n", flush=True)
-        # Calculate and accumulate accuracy metric across all batches
-        # y_pred_prob = torch.softmax(y_pred, dim=1)
-        # Add to total
-        # Save results
-        # y_total = np.concatenate([y_total, y.detach().numpy()])
-        # y_pred_total = np.concatenate(
-        #     [y_pred_total, (np.argmax(y_pred_prob.detach().numpy())).squeeze()]
-        # )
-        # Check status to compute metrics
-        # if len(np.unique(y_total)) == 2 and len(np.unique(y_pred_total)) == 2:
-        #     # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-        #     # to be able to consider accumulated batches. Assigns the same metric to all acum batches
-        #     # Check metrics
-        #     metrics_train = utils.classication_metrics_binary(y_total, y_pred_total)
-        #     metrics_train =  np.array(metrics_train)
-        #     train_metrics = np.add(train_metrics, metrics_train*acum_batches)
-        #     # y_pred_class = torch.argmax(torch.softmax(y_pred, dim=1), dim=1)
-        #     # to be able to consider accumulated batches. Assigns the same metric to all acum batches
-        #     # Reset variables
-        #     y_total = np.array([])
-        #     y_pred_total = np.array([])
-        #     acum_batches = 1
-        # else:
         acum_batches += 1
         
         # Validate
@@ -186,17 +161,18 @@ def train_step(
                 results_val = save_results(results_val, val_metrics)
                 # Checkpoint: earlystop
                 early_stopping(macro_f1, model)
-            
-            # Training can stop for 2 reasons: early stop or max_iter reached
-            if (max_iter is not None) and (n_iters >= max_iter):
-                early_stopping.early_stop = True
-            if early_stopping.early_stop:
-                print("Early stopping")
-                break
-
+            else:
+                early_stopping(1, model) # just saving the model
             # Change scheduler
             scheduler.step()
             print(f'\n Learning rate: {optimizer.param_groups[0]["lr"]}\n', end="\n", flush=True)
+        
+        # Training can stop for 2 reasons: early stop or max_iter reached
+        if (max_iter is not None) and (n_iters >= max_iter):
+            early_stopping.early_stop = True
+        if early_stopping.early_stop:
+            print("Early stopping")
+            break
 
     # print(t_metrics)
     return results_train, results_val, early_stopping.early_stop, n_iters
@@ -254,9 +230,9 @@ def test_step(
             y_pred_prob = torch.softmax(test_pred_logits, dim=1)
 
             # Save results
-            y_total = np.concatenate([y_total, y.detach().numpy()])
+            y_total = np.concatenate([y_total, y.cpu().detach().numpy()])
             y_pred_total = np.concatenate(
-                [y_pred_total, np.argmax(y_pred_prob.detach().numpy(), axis=1)]
+                [y_pred_total, np.argmax(y_pred_prob.cpu().detach().numpy(), axis=1)]
             )
 
     # Check metrics
@@ -278,7 +254,8 @@ def train(
     dir_save: str,
     validation_freq: int,
     restore_best_model: bool = False,
-    max_iter: int = None
+    max_iter: int = None,
+    patience: int = 1,
 ) -> Dict[str, List]:
     """Trains and tests a PyTorch model.
 
@@ -335,7 +312,7 @@ def train(
 
     # initialize the early_stopping object
     early_stopping = utils.EarlyStopping(
-        patience=3,
+        patience=patience, # used 3 for training
         verbose=True,
         path=dir_save,
         restore_best_model=restore_best_model,

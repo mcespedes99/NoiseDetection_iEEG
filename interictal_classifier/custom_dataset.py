@@ -48,12 +48,14 @@ class DWTDir(Dataset):
         # Get institution to map to zip file
         inst = self.df.iloc[index]["institution"]
         # Get data
-        map_dir = {
-            'fnusa': 'Dataset_Fnusa',
-            'mayo': 'Dataset_Mayo'
-        }
-        data = np.load(os.path.join(self.input_folder,f'{inst}/{map_dir[inst]}/{sid}.npy'))
-        data = get_DWT_features(data, "db4")
+        # map_dir = {
+        #     'fnusa': 'Dataset_Fnusa',
+        #     'mayo': 'Dataset_Mayo',
+        #     'UFlorida': 'Dataset_UFlorida'
+        # }
+        # data = np.load(os.path.join(self.input_folder,f'{inst}/{map_dir[inst]}/{sid}.npy'))
+        data = np.load(os.path.join(self.input_folder,f'{inst}/{sid}.npy'))
+        # data = get_DWT_features(data, "db4")
         data = torch.from_numpy(data)
         return data.type(torch.float)
 

@@ -810,16 +810,16 @@ class CNN_Long_Data2(nn.Module):
     def __init__(self, n_classes: int, input_size: int, input_length: int):
         super(CNN_Long_Data2, self).__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(input_size, 8, kernel_size=2, padding=0, stride=1),
-            nn.BatchNorm2d(8),
+            nn.Conv2d(input_size, 16, kernel_size=2, padding=0, stride=1),
+            nn.BatchNorm2d(16),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2,
                          stride=2),
         )
         output_length= int(((input_length-1*(2-1)-1)+1)/2)
         self.conv2 = nn.Sequential(
-            nn.Conv2d(8, 16, kernel_size=2, padding=0, stride=1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(16, 32, kernel_size=2, padding=0, stride=1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
@@ -828,10 +828,13 @@ class CNN_Long_Data2(nn.Module):
         self.fc1 = nn.Sequential(
             nn.Flatten(),
             nn.Dropout(0.5),
-            nn.Linear(16*output_length, 256),
+            nn.Linear(32*output_length, 256),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(256, n_classes),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(128, n_classes),
         )
         # self.fc2 = nn.Sequential(
         #     nn.Dropout(0.5),
@@ -879,7 +882,7 @@ class CNN_Long_Data4(nn.Module):
             nn.Conv2d(16, 16, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(16),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=(1,2),
+            nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
         )
         output_length = int(((output_length-1*(3-1)-1)+1)/2)
@@ -945,7 +948,7 @@ class CNN_Long_Data3(nn.Module):
             nn.Conv2d(32, 32, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=(1,2),
+            nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
         )
         output_length = int(((output_length-1*(3-1)-1)+1)/2)
@@ -1011,7 +1014,7 @@ class CNN_Long_Data5(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=(1,2),
+            nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
         )
         output_length = int(((output_length-1*(3-1)-1)+1)/2)
@@ -1083,7 +1086,7 @@ class CNN_RNN_Long_Data1(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=(1,2),
+            nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
         )
         output_length = int(((output_length-1*(3-1)-1)+1)/2)
@@ -1148,7 +1151,7 @@ class CNN_RNN_Long_Data2(nn.Module):
             nn.Conv2d(32, 32, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=(1,2),
+            nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
         )
         output_length = int(((output_length-1*(3-1)-1)+1)/2)
@@ -1213,7 +1216,7 @@ class CNN_RNN_Long_Data3(nn.Module):
             nn.Conv2d(128, 128, kernel_size=3, padding=0, stride=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.AvgPool2d(kernel_size=(1,2),
+            nn.MaxPool2d(kernel_size=(1,2),
                          stride=(1,2)),
         )
         output_length = int(((output_length-1*(3-1)-1)+1)/2)

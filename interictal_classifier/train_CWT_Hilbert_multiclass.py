@@ -19,7 +19,8 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     print("finish import", end="\n", flush=True)
     assert features in ['CWT','Hilbert', 'Combined'] 
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Running on {device} \n, with {processes} cores of CPU.", end="\n", flush=True)
     os.environ["MKL_NUM_THREADS"] = "1"
     os.environ["OMP_NUM_THREADS"] = "1"
     # torch.set_num_threads(int(os.environ['SLURM_CPUS_PER_TASK']))
@@ -41,7 +42,8 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     }
     # Set number of epochs
     NUM_EPOCHS = 100
-    max_iter = None
+    max_iter = 1016 # for training: None
+    patience = 3 # used 3 for training
     input_length =  input_length_map[srate]
     # Zip files and transforms
     zip_files = [
@@ -87,21 +89,6 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         binary=False,
         previosly_uncompressed = False
     )
-    # data_setup.create_dataloaders_manual(
-    #     zip_files,
-    #     df_path,
-    #     train_transform,
-    #     val_transform,
-    #     batch_size=32,
-    #     num_workers=processes,
-    #     random_split=False,
-    #     dataset_class="SpectrogramDir",
-    #     save_path_df = dir_save,
-    #     discard_line_noise = True,
-    #     split_by_inst=False,
-    #     binary=True,
-    #     previosly_uncompressed=False
-    # )
 
     # Set random seeds
     torch.manual_seed(42)
@@ -116,7 +103,6 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         "CNN_Long_Data3": model.CNN_Long_Data3(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data4": model.CNN_Long_Data4(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Long_Data5": model.CNN_Long_Data5(n_classes=n_classes, input_size=input_size, input_length=input_length),
-        "CNN_Long_Data6": model.CNN_Long_Data6(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_Resnet": model.custom_resnet34(n_classes = n_classes, input_size=input_size),
         "CNN_RNN_Long_Data1": model.CNN_RNN_Long_Data1(n_classes=n_classes, input_size=input_size, input_length=input_length),
         "CNN_RNN_Long_Data2": model.CNN_RNN_Long_Data2(n_classes=n_classes, input_size=input_size, input_length=input_length),
@@ -169,7 +155,8 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
         dir_save=dir_save,
         validation_freq=validation_freq,
         restore_best_model=False,
-        max_iter=max_iter
+        max_iter=max_iter,
+        patience=patience
     )
 
     # Save results
@@ -177,14 +164,16 @@ def main(model_name: str, dir_save: str, processes: int, features: str, srate: i
     with open(path_results, "w") as write_file:
         json.dump(model_0_results, write_file)
 
-    # Restore best model
-    model_0.load_state_dict(torch.load(os.path.join(dir_save, "best_model.pt")))
-    # Run after training evaluation
-    results_val = utils.eval_model(model_0, val_dataloader)
-    results_val['n_iters'] = n_iters
-    path_results = os.path.join(dir_save, "results_val.txt")
-    with open(path_results, "w") as write_file:
-        json.dump(results_val, write_file)
+    # Metrics
+    if val_dataloader is not None:
+        # Restore best model
+        model_0.load_state_dict(torch.load(os.path.join(dir_save, "best_model.pt")))
+        # Run after training evaluation
+        results_val = utils.eval_model(model_0, val_dataloader)
+        results_val['n_iters'] = n_iters
+        path_results = os.path.join(dir_save, "results_val.txt")
+        with open(path_results, "w") as write_file:
+            json.dump(results_val, write_file)
 
     # End the timer and stdout_fileno.write out how long it took
     end_time = timer()
@@ -217,7 +206,7 @@ if __name__ == "__main__":
         "-s", "--srate", type=int, required=True
     )
     parser.add_argument(
-        "-df_val", "--df_val", type=str, required=True
+        "-df_val", "--df_val", type=str, required=False, default=None
     ) 
     parser.add_argument(
         "-df_train", "--df_train", type=str, required=True

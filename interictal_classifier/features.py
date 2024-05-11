@@ -3,6 +3,7 @@ import numpy as np
 from collections import defaultdict, Counter
 import pywt
 
+# Code partially recovered from: https://github.com/taspinar/siml
 def calculate_entropy(list_values):
     counter_values = Counter(list_values).most_common()
     probabilities = [elem[1] / len(list_values) for elem in counter_values]
@@ -43,7 +44,9 @@ def get_features(list_values):
 
 
 def get_DWT_features(signal, waveletname):
+    import scipy.stats as stats
     features = []
+    signal = stats.zscore(signal)
     list_coeff = pywt.wavedec(signal, waveletname)
     # print(len(list_coeff))
     for coeff in list_coeff:

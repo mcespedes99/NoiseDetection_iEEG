@@ -298,7 +298,6 @@ def convert_to_DWT():
 def get_features(data, features: str, srate: int):
     assert features in ['DWT','CWT','Hilbert', 'CWT_Full', 'Combined']
     if features=='DWT':
-        data = stats.zscore(data)
         # Compute features through DWT
         data = get_DWT_features(data, "db4")
     elif features == 'CWT':
@@ -312,21 +311,11 @@ def get_features(data, features: str, srate: int):
     return data
 
 def convert_to_features(srate, features: str):
-    # if srate == 2048:
-    #     print(f'{features} 2048 Hz', end='\n', flush=True)
-    #     zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_2048.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_2048.zip']
-    #     out_dir = '/home/mcesped/scratch/Datasets/2048Hz'
-    # elif srate == 1024:
-    #     print(f'{features} 1024 Hz', end='\n', flush=True)
-    #     zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_2048.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_2048.zip']
-    #     out_dir = '/home/mcesped/scratch/Datasets/2048Hz'
-    # else:
-    #     print(f'{features} 1200 Hz', end='\n', flush=True)
-    #     zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Fnusa_1200.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_1200.zip']
-    #     # zip_files = ['/home/mcesped/scratch/Datasets/Dataset_Mayo_np.zip']
-    #     out_dir = '/home/mcesped/scratch/Datasets/1200Hz'
+    # zip_files = [f'/home/mcesped/scratch/Datasets/Dataset_Fnusa_{srate}.zip', '/home/mcesped/scratch/Datasets/Dataset_Mayo_{srate}.zip']
+    # out_dir = '/home/mcesped/scratch/Datasets/{srate}Hz'
     print(f'{features} {srate} Hz', end='\n', flush=True)
-    zip_files = [f'/home/mcesped/scratch/Datasets/Dataset_Fnusa_{srate}.zip', f'/home/mcesped/scratch/Datasets/Dataset_Mayo_{srate}.zip']
+    # zip_files = [f'/home/mcesped/scratch/Datasets/Dataset_Fnusa_{srate}.zip', f'/home/mcesped/scratch/Datasets/Dataset_Mayo_{srate}.zip']
+    zip_files = [f'/home/mcesped/scratch/Datasets/Dataset_UFlorida_{srate}.zip']
     out_dir = f'/home/mcesped/scratch/Datasets/{srate}Hz'
     print("\nUsing zipfiles:", end="\n", flush=True)
     print(zip_files)
@@ -338,7 +327,8 @@ def convert_to_features(srate, features: str):
     utils.uncompress_zip(zip_files=zip_files, out_dir=tmpdir)
     print("\nDone", end="\n", flush=True)
     # New paths
-    paths_files = [os.path.join(tmpdir,'fnusa/Dataset_Fnusa'), os.path.join(tmpdir,'mayo/Dataset_Mayo')]#os.path.join(tmpdir,'fnusa/Dataset_Fnusa')
+    # paths_files = [os.path.join(tmpdir,'fnusa/Dataset_Fnusa'), os.path.join(tmpdir,'mayo/Dataset_Mayo')]#os.path.join(tmpdir,'fnusa/Dataset_Fnusa')
+    paths_files = [os.path.join(tmpdir,'UFlorida/Dataset_UFlorida')]
     # print(zip_files)
     zipped_list = list(zip(paths_files, zip_files))
     for directory_in_str, zip_file in zipped_list:

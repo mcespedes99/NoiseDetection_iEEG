@@ -359,16 +359,16 @@ def eval_model(model_0, val_dataloader, binary=False):
             if binary:
                 y_pred_prob = torch.sigmoid(test_pred_logits.squeeze())
                 y_pred_total = np.concatenate(
-                    [y_pred_total, y_pred_prob.detach().numpy()]
+                    [y_pred_total, y_pred_prob.cpu().detach().numpy()]
                 )
             else:
                 y_pred_prob = torch.softmax(test_pred_logits, dim=1)
                 y_pred_total = np.concatenate(
-                    [y_pred_total, np.argmax(y_pred_prob.detach().numpy(), axis=1)]
+                    [y_pred_total, np.argmax(y_pred_prob.cpu().detach().numpy(), axis=1)]
                 )
 
             # Save results
-            y_total = np.concatenate([y_total, y.detach().numpy()])
+            y_total = np.concatenate([y_total, y.cpu().detach().numpy()])
                 
     if binary:
         results_val = classication_metrics_binary(y_total, y_pred_total)

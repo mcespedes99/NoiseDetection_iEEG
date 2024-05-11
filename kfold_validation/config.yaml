@@ -1,9 +1,9 @@
 df_cv: '/scratch/mcesped/Datasets/df_total_cv_curated_new.csv'
 feature: 'Hilbert'
-srate: 1024
-output_dir: '/scratch/mcesped/code/NoiseDetection_iEEG/Reports/Multiclass/'
+srate: 2048
+output_dir: '/scratch/mcesped/Results/Reports_ML/Multiclass/'
 python_file: '/scratch/mcesped/code/NoiseDetection_iEEG/interictal_classifier/train_CWT_Hilbert_multiclass.py'
-trial: 1
+trial: 2
 cv_fold: 10
 repeats: 2
 architecture: CNN_Long_Data4

@@ -182,7 +182,7 @@ def create_dataloaders_uncompress(
     df_train = pd.read_csv(df_train_path, sep=",", index_col="index")
     if df_val_path is not None:
         df_val = pd.read_csv(df_val_path, sep=",", index_col="index")
-    print(f'Percentage df train: {len(df_train)/(len(df_train)+len(df_val))}\n', end='\n', flush=True)
+        print(f'Percentage df train: {len(df_train)/(len(df_train)+len(df_val))}\n', end='\n', flush=True)
     
     
     # Binary classification. 0=Noise, 1=Others (physiological and pathological)
@@ -435,7 +435,6 @@ def create_dataloaders_tree(
     batch_size: int,
     num_workers: int = None,
     previosly_uncompressed: bool = False,
-    binary:bool = False,
 ):
     # Created dataloaders given val and train dfs
     """Creates training and testing DataLoaders.
@@ -466,19 +465,13 @@ def create_dataloaders_tree(
         num_workers = os.cpu_count()
     # Read given dataframe
     df_train = pd.read_csv(df_train_path, sep=",", index_col="index")
-    df_val = pd.read_csv(df_val_path, sep=",", index_col="index")
-    print(f'Percentage df train: {len(df_train)/(len(df_train)+len(df_val))}\n', end='\n', flush=True)
-    
-    
-    # Binary classification. 0=Noise, 1=Others (physiological and pathological)
-    if binary:
-        print('Grouping Pathology and physiology in one class\n', end='\n', flush=True)
-        df_train = df_train.replace({'category_id': {2: 0, 1:0, 0:1}})
-        df_val = df_val.replace({'category_id': {2: 0, 1:0, 0:1}})
+    if df_val_path is not None:
+        df_val = pd.read_csv(df_val_path, sep=",", index_col="index")
+        print(f'Percentage df train: {len(df_train)/(len(df_train)+len(df_val))}\n', end='\n', flush=True)
    
     # Shuffle them
     df_train = df_train.sample(frac=1).reset_index(drop=True)
-    df_val = df_val.sample(frac=1).reset_index(drop=True)
+    # df_val = df_val.sample(frac=1).reset_index(drop=True)
 
     # Get dataset class
     dataset_custom = custom_dataset.DWTDir
@@ -494,9 +487,11 @@ def create_dataloaders_tree(
     train_data = dataset_custom(
         df=df_train, input_folder=tmpdir
     )
-    val_data = dataset_custom(
-        df=df_val, input_folder=tmpdir
-    )
+    val_data = []
+    if df_val_path is not None:
+        val_data = dataset_custom(
+            df=df_val, input_folder=tmpdir
+        )
     
     # Get class names
     class_names = train_data.classes
@@ -513,17 +508,19 @@ def create_dataloaders_tree(
     train_dataloader = DataLoader(
         train_data,
         batch_size=train_batch_size,
-        shuffle=True,  # Don't work with sampler
+        shuffle=False,  # Don't work with sampler
         # sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
     )
-    val_dataloader = DataLoader(
-        val_data,
-        batch_size=val_batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-    )
+    val_dataloader = None
+    if df_val_path is not None:
+        val_dataloader = DataLoader(
+            val_data,
+            batch_size=val_batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
 
     return train_dataloader, val_dataloader, class_names
