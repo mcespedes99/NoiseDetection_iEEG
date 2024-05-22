@@ -116,11 +116,11 @@ def evaluate_RF(X, y, groups):
     cv_object = RepeatedGroupKFold(n_splits=10, n_repeats=1, random_state=46) 
     # Define the parameters. Play with this grid!
     param_grid = dict({'n_estimators': [250, 500, 750, 1000],
-                    'max_depth': [3, 5, 7],
-                    'max_features' : [0.5, 0.75],
-                   'min_samples_leaf': [0.05],
-                   'criterion': ['gini', 'entropy']
-                    })
+                       'max_depth': [3, 5, 7],
+                       'max_features' : [0.5, 0.75],
+                       'min_samples_leaf': [0.05],
+                       'criterion': ['gini', 'entropy']
+                       })
 
     # Define grid search object.
     GridRF = GridSearchCV(model_0,        # Original XGB. 
